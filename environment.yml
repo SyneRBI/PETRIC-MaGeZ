@@ -1,4 +1,4 @@
-name: magez
+name: PETRIC-MAGEZ
 channels: [conda-forge]
 dependencies:
 - array-api-compat
