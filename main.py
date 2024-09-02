@@ -123,8 +123,10 @@ class Submission(Algorithm):
         )
         data.prior.set_up(data.OSEM_image)
 
-        for f in self._obj_funs:  # add prior evenly to every objective function
-            f.set_prior(data.prior)
+        # for f in self._obj_funs:  # add prior evenly to every objective function
+        #    f.set_prior(data.prior)
+
+        self._subset_prior_fct = data.prior
 
         self._adjoint_ones = self.x.get_uniform_copy(0)
 
@@ -241,8 +243,14 @@ class Submission(Algorithm):
         self._summed_subset_gradients = self.x.get_uniform_copy(0)
         self._subset_gradients = []
 
+        subset_prior_gradient = self._subset_prior_fct.gradient(self.x)
+
+        # remember that the objective has to be maximized
+        # posterior = log likelihood - log prior ("minus" instead of "plus"!)
         for i in range(self._num_subsets):
-            self._subset_gradients.append(self._obj_funs[i].gradient(self.x))
+            self._subset_gradients.append(
+                self._obj_funs[i].gradient(self.x) - subset_prior_gradient
+            )
             self._summed_subset_gradients += self._subset_gradients[i]
 
     def update(self):
@@ -278,10 +286,17 @@ class Submission(Algorithm):
             if self._verbose:
                 print(f" {self.update}, {self.subset}, subset gradient update")
 
+            subset_prior_gradient = self._subset_prior_fct.gradient(self.x)
+
+            # remember that the objective has to be maximized
+            # posterior = log likelihood - log prior ("minus" instead of "plus"!)
             grad = (
                 self._num_subsets
                 * (
-                    self._obj_funs[self.subset].gradient(self.x)
+                    (
+                        self._obj_funs[self.subset].gradient(self.x)
+                        - subset_prior_gradient
+                    )
                     - self._subset_gradients[self.subset]
                 )
                 + self._summed_subset_gradients

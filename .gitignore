@@ -1,6 +1,6 @@
 data/
 orgdata/
-output/
+output*/
 tmp*/
 err*.txt
 info.txt
