@@ -23,7 +23,7 @@ jobs:
         fi
         if test -f environment.yml; then
           sed -i '/^name:.*/d' environment.yml
-          conda env update
+          conda env update -n base
         fi
         if test -f requirements.txt; then
           pip install -r requirements.txt
