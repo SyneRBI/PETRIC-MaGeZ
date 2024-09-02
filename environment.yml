@@ -1,3 +1,5 @@
+name: petric_magez_alg_one
+
 channels: 
   - conda-forge
 
