@@ -108,13 +108,15 @@ class Submission(Algorithm):
         self._subset_number_list = []
         self._precond_hessian_factor = precond_hessian_factor
 
-        self._data_sub, self._acq_models, self._obj_funs = partitioner.data_partition(
-            data.acquired_data,
-            data.additive_term,
-            data.mult_factors,
-            self._num_subsets,
-            initial_image=data.OSEM_image,
-            mode="staggered",
+        self._data_sub, self._acq_models, self._subset_likelihood_funcs = (
+            partitioner.data_partition(
+                data.acquired_data,
+                data.additive_term,
+                data.mult_factors,
+                self._num_subsets,
+                initial_image=data.OSEM_image,
+                mode="staggered",
+            )
         )
 
         # WARNING: modifies prior strength with 1/num_subsets (as currently needed for BSREM implementations)
@@ -123,9 +125,6 @@ class Submission(Algorithm):
         )
         data.prior.set_up(data.OSEM_image)
 
-        # for f in self._obj_funs:  # add prior evenly to every objective function
-        #    f.set_prior(data.prior)
-
         self._subset_prior_fct = data.prior
 
         self._adjoint_ones = self.x.get_uniform_copy(0)
@@ -133,7 +132,9 @@ class Submission(Algorithm):
         for i in range(self._num_subsets):
             if self._verbose:
                 print(f"Calculating subset {i} sensitivity")
-            self._adjoint_ones += self._obj_funs[i].get_subset_sensitivity(0)
+            self._adjoint_ones += self._subset_likelihood_funcs[
+                i
+            ].get_subset_sensitivity(0)
 
         self._fov_mask = self.x.get_uniform_copy(0)
         # tmp = 1.0 * (self._adjoint_ones.as_array() > 0)
@@ -148,7 +149,7 @@ class Submission(Algorithm):
         self._subset_gradients = []
 
         if complete_gradient_epochs is None:
-            self._complete_gradient_epochs: list[int] = [x for x in range(0, 100, 2)]
+            self._complete_gradient_epochs: list[int] = [x for x in range(0, 1000, 2)]
         else:
             self._complete_gradient_epochs = complete_gradient_epochs
 
@@ -249,7 +250,8 @@ class Submission(Algorithm):
         # posterior = log likelihood - log prior ("minus" instead of "plus"!)
         for i in range(self._num_subsets):
             self._subset_gradients.append(
-                self._obj_funs[i].gradient(self.x) - subset_prior_gradient
+                self._subset_likelihood_funcs[i].gradient(self.x)
+                - subset_prior_gradient
             )
             self._summed_subset_gradients += self._subset_gradients[i]
 
@@ -277,7 +279,7 @@ class Submission(Algorithm):
                     f"  {self._update}, {self.subset}, recalculating all subset gradients"
                 )
             self.update_all_subset_gradients()
-            grad = self._summed_subset_gradients
+            approximated_gradient = self._summed_subset_gradients
         else:
             if self._subset_number_list == []:
                 self.create_subset_number_list()
@@ -290,11 +292,11 @@ class Submission(Algorithm):
 
             # remember that the objective has to be maximized
             # posterior = log likelihood - log prior ("minus" instead of "plus"!)
-            grad = (
+            approximated_gradient = (
                 self._num_subsets
                 * (
                     (
-                        self._obj_funs[self.subset].gradient(self.x)
+                        self._subset_likelihood_funcs[self.subset].gradient(self.x)
                         - subset_prior_gradient
                     )
                     - self._subset_gradients[self.subset]
@@ -303,7 +305,7 @@ class Submission(Algorithm):
             )
 
         ### Objective has to be maximized -> "+" for gradient ascent
-        self.x = self.x + self._step_size * self._precond * grad
+        self.x = self.x + self._step_size * self._precond * approximated_gradient
 
         # enforce non-negative constraint
         self.x.maximum(0, out=self.x)
@@ -316,15 +318,7 @@ class Submission(Algorithm):
         NB: It should be `sum(prompts * log(acq_model.forward(self.x)) - self.x * sensitivity)` across all subsets.
         """
 
-        self.loss.append(self.calc_cost(self.x))
-
-    def calc_cost(self, x):
-        # cost = 0
-        # for i in range(self._num_subsets):
-        #    cost += self._obj_funs[i](x)
-        # return cost
-
-        return 0
+        self.loss.append(0)
 
     def create_subset_number_list(self):
         tmp = np.arange(self._num_subsets)
