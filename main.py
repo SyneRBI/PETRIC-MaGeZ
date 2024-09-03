@@ -67,8 +67,9 @@ class Submission(Algorithm):
         update_objective_interval: int | None = None,
         complete_gradient_epochs: None | list[int] = None,
         precond_update_epochs: None | list[int] = None,
-        precond_hessian_factor: float = 32.0,
+        precond_hessian_factor: float = 1.0,
         verbose: bool = False,
+        seed: int = 1,
         **kwargs,
     ):
         """
@@ -76,6 +77,8 @@ class Submission(Algorithm):
         NB: in practice, `num_subsets` should likely be determined from the data.
         This is just an example. Try to modify and improve it!
         """
+
+        np.random.seed(seed)
 
         self._verbose = verbose
         self.subset = 0
@@ -119,10 +122,10 @@ class Submission(Algorithm):
             )
         )
 
+        penalization_factor = data.prior.get_penalisation_factor()
+
         # WARNING: modifies prior strength with 1/num_subsets (as currently needed for BSREM implementations)
-        data.prior.set_penalisation_factor(
-            data.prior.get_penalisation_factor() / self._num_subsets
-        )
+        data.prior.set_penalisation_factor(penalization_factor / self._num_subsets)
         data.prior.set_up(data.OSEM_image)
 
         self._subset_prior_fct = data.prior
@@ -175,7 +178,7 @@ class Submission(Algorithm):
             gamma=data.prior.get_gamma(),
         )
         self._python_prior.kappa = xp.asarray(data.kappa.as_array(), device=self._dev)
-        self._python_prior.scale = data.prior.get_penalisation_factor()
+        self._python_prior.scale = penalization_factor
 
         self._precond_filter = STIR.SeparableGaussianImageFilter()
         self._precond_filter.set_fwhms([5.0, 5.0, 5.0])
@@ -195,9 +198,9 @@ class Submission(Algorithm):
         return self._update // self._num_subsets
 
     def update_step_size(self):
-        if self.epoch <= 3:
+        if self.epoch <= 4:
             self._step_size = self._step_size_factor * 2.0
-        elif self.epoch > 3 and self.epoch <= 8:
+        elif self.epoch > 4 and self.epoch <= 8:
             self._step_size = self._step_size_factor * 1.5
         elif self.epoch > 8 and self.epoch <= 12:
             self._step_size = self._step_size_factor * 1.0
@@ -233,7 +236,7 @@ class Submission(Algorithm):
             * (x_sm + delta)
             / (
                 self._adjoint_ones
-                + self._precond_hessian_factor * prior_diag_hess * x_sm
+                + (self._precond_hessian_factor * 2) * prior_diag_hess * x_sm
             )
         )
 

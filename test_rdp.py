@@ -381,60 +381,114 @@ if __name__ == "__main__":
 
     image_type = "osem"  # osem or ref
 
-    for ds in range(0, 4):
+    for ds in range(0, 1):
         srcdir, outdir, metrics = data_dirs_metrics[ds]
         print(srcdir)
         data = get_data(srcdir=srcdir, outdir=outdir)
 
-        np.save(f"{ds}.npy", data.OSEM_image.as_array())
+        if image_type == "osem":
+            x = data.OSEM_image
+        elif image_type == "ref":
+            x = data.reference_image
+        else:
+            raise ValueError("image must be either 'osem' or 'ref'")
 
-#        if image_type == "osem":
-#            x = data.OSEM_image
-#        elif image_type == "ref":
-#            x = data.reference_image
-#        else:
-#            raise ValueError("image must be either 'osem' or 'ref'")
-#
-#        # the RDP implementation can use numpy or cupy. for the latter you have to adjust the device
-#        python_prior = RDP(
-#            x.shape,
-#            xp,
-#            "cpu",
-#            xp.asarray(x.spacing, device="cpu"),
-#            eps=data.prior.get_epsilon(),
-#            gamma=data.prior.get_gamma(),
-#        )
-#        python_prior.kappa = data.kappa.as_array()
-#        python_prior.scale = data.prior.get_penalisation_factor()
-#
-#        v1 = data.prior(x)
-#        v2 = python_prior(x.as_array())
-#
-#        print(v1, v2)
-#
-#        g1 = data.prior.gradient(x).as_array()
-#        g2 = python_prior.gradient(x.as_array())
+        # %%
 
-## assert np.isclose(v1, v2)
-## assert np.all(np.isclose(g1, g2, atol=np.abs(g1).max() / 1e6))
+        # the RDP implementation can use numpy or cupy. for the latter you have to adjust the device
+        python_prior = RDP(
+            x.shape,
+            xp,
+            "cpu",
+            xp.asarray(x.spacing, device="cpu"),
+            eps=data.prior.get_epsilon(),
+            gamma=data.prior.get_gamma(),
+        )
+        python_prior.kappa = data.kappa.as_array()
+        python_prior.scale = data.prior.get_penalisation_factor()
 
-## get the diagonal of the Hessian of the RDP (as numpy array)
-# h = python_prior.diag_hessian(x.as_array())
+        prior_val = data.prior(x)
+        print(f"data.prior({image_type}) = {prior_val}")
 
-## %%
+        # %%
+        # get gradient
+        prior_grad = data.prior.gradient(x)
 
-# acquisition_model = STIR.AcquisitionModelUsingParallelproj()
-# acquisition_model.set_up(data.acquired_data, x)
-# adjoint_ones = acquisition_model.backward(data.mult_factors)
+        # %%
+        # get the diagonal of the Hessian of the RDP (as numpy array)
+        # precond_filter = STIR.SeparableGaussianImageFilter()
+        # precond_filter.set_fwhms([5.0, 5.0, 5.0])
+        # precond_filter.set_up(data.OSEM_image)
+        # x_sm = precond_filter.process(x)
 
-## if we use precond_data = x / A^T 1 and, precond_prior = 1 / diag_hess
-## and combine them as harmonic mean, we get precond_eff = x / (A^T 1 + h * x)
+        x_sm = x
 
-## to see which precond dominates, we can compare A^T 1 and h * x
+        h = x.get_uniform_copy(0)
+        inv_h = x.get_uniform_copy(0)
 
-# d_data = adjoint_ones.as_array()
-# d_prior = h * x.as_array()
+        tmp = python_prior.diag_hessian(x_sm.as_array())
 
-# xp.save(f"d_data_{image_type}_{ds}.npy", d_data)
-# xp.save(f"d_prior_{image_type}_{ds}.npy", d_prior)
-# xp.save(f"x_{image_type}_{ds}.npy", x.as_array())
+        h.fill(tmp)
+        inv_h.fill(np.nan_to_num(1 / tmp, posinf=0))
+
+        # %%
+
+        from sirf.contrib.partitioner import partitioner
+
+        data_sub, acq_models, likelihood_funcs = partitioner.data_partition(
+            data.acquired_data,
+            data.additive_term,
+            data.mult_factors,
+            1,
+            initial_image=data.OSEM_image,
+            mode="staggered",
+        )
+
+        logL_func = likelihood_funcs[0]
+
+        logL_val = logL_func(x)
+        logL_grad = logL_func.gradient(x)
+
+        adjoint_ones = logL_func.get_subset_sensitivity(0)
+
+        fov_mask = x.get_uniform_copy(0)
+        tmp = 1.0 * (adjoint_ones.as_array() > 0)
+        fov_mask.fill(tmp)
+        adjoint_ones += 1e-6 * (-fov_mask + 1.0)
+
+        P_logL = fov_mask * (x / adjoint_ones)
+
+        P_harm = x / (adjoint_ones + 2 * h)
+
+        num_iter = 200
+
+        step_sizes = [1.0, 2.0]
+
+        cost = np.zeros((len(step_sizes), num_iter))
+
+        ref_cost = logL_val - prior_val
+
+        for j, alpha in enumerate(step_sizes):
+            print(f"alpha {alpha:.2E}")
+            # xnew_prior = x - alpha * fov_mask * prior_grad * inv_h
+            # xnew_prior.maximum(0, out=xnew_prior)
+            # print(f"delta neg. prior {(prior_val - data.prior(xnew_prior)):.2E}")
+
+            # xnew_logL = x + alpha * fov_mask * logL_grad * P_logL
+            # xnew_logL.maximum(0, out=xnew_logL)
+            # print(f"delta logL       {(logL_func(xnew_logL) - logL_val):.2E}")
+
+            for i in range(num_iter):
+                xnew = x + alpha * fov_mask * (logL_grad - prior_grad) * P_harm
+                xnew.maximum(0, out=xnew)
+
+                cost[j, i] = logL_func(xnew) - data.prior(xnew)
+
+                delta_cost = cost[j, i] - ref_cost
+
+                print(f"{i:04} delta cost {(delta_cost):.2E}")
+
+                if delta_cost < 0:
+                    break
+
+                x = xnew

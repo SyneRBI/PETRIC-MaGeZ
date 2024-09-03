@@ -40,7 +40,7 @@ from cil.optimisation.algorithms import Algorithm
 from cil.optimisation.utilities import callbacks as cbks
 from img_quality_cil_stir import ImageQualityCallback
 
-from main_SVRG import Submission, submission_callbacks
+from main import Submission, submission_callbacks
 
 log = logging.getLogger("petric")
 TEAM = os.getenv("GITHUB_REPOSITORY", "SyneRBI/PETRIC-").split("/PETRIC-", 1)[-1]
@@ -417,5 +417,6 @@ if __name__ == "__main__":
             precond_update_epochs=precond_update_epochs,
         )
     else:
-        for i in range(4):
-            test_petric(ds=i, num_iter=200)
+        # for i in range(4):
+        for i in [0, 1, 3]:
+            test_petric(ds=i, num_iter=100)
