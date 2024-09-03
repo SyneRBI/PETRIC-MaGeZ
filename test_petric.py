@@ -316,7 +316,7 @@ def get_data(srcdir=".", outdir=OUTDIR, sirf_verbosity=0):
     )
 
 
-def test_petric(ds: int, num_iter: int, **kwargs):
+def test_petric(ds: int, num_iter: int, suffix: str = "", **kwargs):
 
     # get arguments and values such that we can dump them in the outdir
     frame = inspect.currentframe()
@@ -328,7 +328,7 @@ def test_petric(ds: int, num_iter: int, **kwargs):
     formatted_datetime = current_datetime.strftime("%Y%m%d-%H%M%S")
 
     # sdir_name = f"{formatted_datetime}_ss_{step_size}_n_{num_iter}_subs_{num_subsets}_phf_{precond_hessian_factor}"
-    sdir_name = f"{formatted_datetime}"
+    sdir_name = f"{formatted_datetime}_{suffix}"
 
     if ds == 0:
         srcdir = SRCDIR / "Siemens_mMR_NEMA_IQ"
@@ -418,5 +418,8 @@ if __name__ == "__main__":
         )
     else:
         # for i in range(4):
-        for i in [0, 1, 3]:
-            test_petric(ds=i, num_iter=100)
+        for i in [0, 1, 3, 2]:
+            for ns in [25, 50, 10]:
+                test_petric(
+                    ds=i, num_iter=300, suffix=f"num_sub_{ns}", approx_num_subsets=ns
+                )

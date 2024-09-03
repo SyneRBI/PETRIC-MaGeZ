@@ -63,7 +63,7 @@ class Submission(Algorithm):
         self,
         data: Dataset,
         step_size_factor: float = 1.0,  # multiplicative factor to increase / decrease default step sizes
-        num_subsets: int | None = None,
+        approx_num_subsets: int = 25,  # approximate number of subsets, closest divisor of num_views will be used
         update_objective_interval: int | None = None,
         complete_gradient_epochs: None | list[int] = None,
         precond_update_epochs: None | list[int] = None,
@@ -87,12 +87,10 @@ class Submission(Algorithm):
 
         num_views = data.mult_factors.dimensions()[2]
         num_views_divisors = np.array(get_divisors(num_views))
-        if num_subsets is None:
-            self._num_subsets = num_views_divisors[
-                np.argmin(np.abs(num_views_divisors - 25))
-            ]
-        else:
-            self._num_subsets = num_subsets
+        self._num_subsets = num_views_divisors[
+            np.argmin(np.abs(num_views_divisors - approx_num_subsets))
+        ]
+        print(f"num_subsets: {self._num_subsets}")
 
         if self._num_subsets not in num_views_divisors:
             raise ValueError(
