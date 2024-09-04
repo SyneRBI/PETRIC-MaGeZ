@@ -90,7 +90,6 @@ class Submission(Algorithm):
         self._num_subsets = num_views_divisors[
             np.argmin(np.abs(num_views_divisors - approx_num_subsets))
         ]
-        print(f"num_subsets: {self._num_subsets}")
 
         if self._num_subsets not in num_views_divisors:
             raise ValueError(
@@ -287,7 +286,7 @@ class Submission(Algorithm):
 
             self.subset = self._subset_number_list.pop()
             if self._verbose:
-                print(f" {self.update}, {self.subset}, subset gradient update")
+                print(f" {self._update}, {self.subset}, subset gradient update")
 
             subset_prior_gradient = self._subset_prior_fct.gradient(self.x)
 
