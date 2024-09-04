@@ -13,3 +13,4 @@ __pycache__/
 *.ahv
 *.hv
 *.v
+sim_results/*
