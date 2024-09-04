@@ -345,11 +345,9 @@ svrg_alg = SVRG(subset_neglogL, prior, x_init, verbose=False)
 nrmse_svrg = svrg_alg.run(num_epochs * num_subsets, callback=nmrse_callback)
 
 # %%
-prior_prox = ProxRDP(prior)
+prior_prox = ProxRDP(prior, niter=5, init_step=0.1)
 
-proxsvrg_alg = ProxSVRG(
-    subset_neglogL, prior_prox, x_init, verbose=False, niter=10, init_step=1.0
-)
+proxsvrg_alg = ProxSVRG(subset_neglogL, prior_prox, x_init, verbose=False)
 nrmse_proxsvrg = proxsvrg_alg.run(num_epochs * num_subsets, callback=nmrse_callback)
 
 fig, ax = plt.subplots(tight_layout=True)

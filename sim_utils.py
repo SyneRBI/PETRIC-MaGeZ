@@ -339,14 +339,16 @@ class SVRG:
         return self._x
 
     def update_step_size(self):
-        if self.epoch <= 4:
-            self._step_size = self._step_size_factor * 2.0
-        elif self.epoch > 4 and self.epoch <= 8:
-            self._step_size = self._step_size_factor * 1.5
-        elif self.epoch > 8 and self.epoch <= 12:
-            self._step_size = self._step_size_factor * 1.0
-        else:
-            self._step_size = self._step_size_factor * 0.5
+        # if self.epoch <= 4:
+        #    self._step_size = self._step_size_factor * 2.0
+        # elif self.epoch > 4 and self.epoch <= 8:
+        #    self._step_size = self._step_size_factor * 1.5
+        # elif self.epoch > 8 and self.epoch <= 12:
+        #    self._step_size = self._step_size_factor * 1.0
+        # else:
+        #    self._step_size = self._step_size_factor * 0.5
+
+        self._step_size = 1.0
 
         if self._verbose:
             print(self._update, self.epoch, self._step_size)
@@ -484,7 +486,7 @@ class ProxRDP:
 
         for k in range(self._niter):
             # compute gradient step
-            grad = T * (u - z) + tau * self._prior.gradient(u)
+            grad = (u - z) / T + tau * self._prior.gradient(u)
             tmp = u - self._step * precond * grad
 
             u_new = xp.clip(tmp, 0, None)
