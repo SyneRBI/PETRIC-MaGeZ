@@ -339,16 +339,14 @@ class SVRG:
         return self._x
 
     def update_step_size(self):
-        # if self.epoch <= 4:
-        #    self._step_size = self._step_size_factor * 2.0
-        # elif self.epoch > 4 and self.epoch <= 8:
-        #    self._step_size = self._step_size_factor * 1.5
-        # elif self.epoch > 8 and self.epoch <= 12:
-        #    self._step_size = self._step_size_factor * 1.0
-        # else:
-        #    self._step_size = self._step_size_factor * 0.5
-
-        self._step_size = 1.0
+        if self.epoch <= 4:
+            self._step_size = self._step_size_factor * 2.0
+        elif self.epoch > 4 and self.epoch <= 8:
+            self._step_size = self._step_size_factor * 1.5
+        elif self.epoch > 8 and self.epoch <= 12:
+            self._step_size = self._step_size_factor * 1.0
+        else:
+            self._step_size = self._step_size_factor * 0.5
 
         if self._verbose:
             print(self._update, self.epoch, self._step_size)
@@ -463,6 +461,7 @@ class ProxRDP:
         prior: SmoothFunctionWithDiagonalHessian,
         init_step: float = 1.0,
         niter: int = 5,
+        adaptive_step_size: bool = True,
         up: float = 1.1,
         down: float = 2.0,
     ):
@@ -471,6 +470,7 @@ class ProxRDP:
         self._niter = niter
         self._up = up
         self._down = down
+        self._adaptive_step_size = adaptive_step_size
 
     @property
     def prior(self) -> SmoothFunctionWithDiagonalHessian:
@@ -492,18 +492,22 @@ class ProxRDP:
             u_new = xp.clip(tmp, 0, None)
 
             # update step size
-            diff_new = xp.linalg.norm(u_new - u)
 
-            if k == 0:
-                u = u_new
-                diff = diff_new
-            else:
-                if diff_new <= diff:
-                    self._step *= self._up
+            if self._adaptive_step_size:
+                diff_new = xp.linalg.norm(u_new - u)
+
+                if k == 0:
                     u = u_new
                     diff = diff_new
                 else:
-                    self._step /= self._down
+                    if diff_new <= diff:
+                        self._step *= self._up
+                        u = u_new
+                        diff = diff_new
+                    else:
+                        self._step /= self._down
+            else:
+                u = u_new
 
         return u
 
@@ -579,16 +583,14 @@ class ProxSVRG:
         return self._x
 
     def update_step_size(self):
-        # if self.epoch <= 4:
-        #    self._step_size = self._step_size_factor * 2.0
-        # elif self.epoch > 4 and self.epoch <= 8:
-        #    self._step_size = self._step_size_factor * 1.5
-        # elif self.epoch > 8 and self.epoch <= 12:
-        #    self._step_size = self._step_size_factor * 1.0
-        # else:
-        #    self._step_size = self._step_size_factor * 0.5
-
-        self._step_size = 1e0
+        if self.epoch <= 4:
+            self._step_size = self._step_size_factor * 2.0
+        elif self.epoch > 4 and self.epoch <= 8:
+            self._step_size = self._step_size_factor * 1.5
+        elif self.epoch > 8 and self.epoch <= 12:
+            self._step_size = self._step_size_factor * 1.0
+        else:
+            self._step_size = self._step_size_factor * 0.5
 
         if self._verbose:
             print(self._update, self.epoch, self._step_size)
@@ -664,7 +666,7 @@ class ProxSVRG:
         tau = self._step_size
         T = self._precond
         self._x = self._prior_prox(
-            tmp, tau=tau, T=T, precond=(T + tau * self._prior_diag_hess) ** (-1)
+            tmp, tau=tau, T=T, precond=1 / (1 / T + tau * self._prior_diag_hess)
         )
 
         self._update += 1

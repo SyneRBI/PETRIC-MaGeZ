@@ -345,19 +345,49 @@ svrg_alg = SVRG(subset_neglogL, prior, x_init, verbose=False)
 nrmse_svrg = svrg_alg.run(num_epochs * num_subsets, callback=nmrse_callback)
 
 # %%
-prior_prox = ProxRDP(prior, niter=5, init_step=0.1)
+prior_prox = ProxRDP(prior, niter=4, init_step=1.0, adaptive_step_size=False)
 
 proxsvrg_alg = ProxSVRG(subset_neglogL, prior_prox, x_init, verbose=False)
 nrmse_proxsvrg = proxsvrg_alg.run(num_epochs * num_subsets, callback=nmrse_callback)
 
-fig, ax = plt.subplots(tight_layout=True)
-ax.semilogy(np.arange(num_subsets * num_epochs) / num_subsets, nrmse_svrg, label="SVRG")
-ax.semilogy(
-    np.arange(num_subsets * num_epochs) / num_subsets, nrmse_proxsvrg, label="ProxSVRG"
+# %%
+fig, ax = plt.subplots(2, 4, figsize=(12, 6), tight_layout=True)
+
+sl0 = 0
+sl1 = x_true.shape[2] // 2
+
+ims = dict(cmap="Greys", vmin=0, vmax=1.1 * float(xp.max(x_ref)))
+
+ax[0, 0].imshow(to_device(x_ref[..., sl0], "cpu"), **ims)
+ax[1, 0].imshow(to_device(x_ref[..., sl1], "cpu"), **ims)
+ax[0, 0].set_title(f"ref slice {sl0}")
+ax[1, 0].set_title(f"ref slice {sl1}")
+
+ax[0, 1].imshow(to_device(svrg_alg.x[..., sl0], "cpu"), **ims)
+ax[1, 1].imshow(to_device(svrg_alg.x[..., sl1], "cpu"), **ims)
+ax[0, 1].set_title(f"SVRG slice {sl0}")
+ax[1, 1].set_title(f"SVRG slice {sl1}")
+
+ax[0, 2].imshow(to_device(proxsvrg_alg.x[..., sl0], "cpu"), **ims)
+ax[1, 2].imshow(to_device(proxsvrg_alg.x[..., sl1], "cpu"), **ims)
+ax[0, 2].set_title(f"ProxSVRG slice {sl0}")
+ax[1, 2].set_title(f"ProxSVRG slice {sl1}")
+
+ax[0, -1].semilogy(
+    np.arange(num_subsets * num_epochs) / num_subsets, nrmse_svrg, label="SVRG"
 )
-ax.axhline(0.01, color="black", ls="--")
-ax.set_xlabel("epoch")
-ax.set_ylabel("whole image NRMSE")
-ax.grid(ls=":")
-ax.legend()
+ax[0, -1].semilogy(
+    np.arange(num_subsets * num_epochs) / num_subsets,
+    nrmse_proxsvrg,
+    "--",
+    label="ProxSVRG",
+)
+ax[0, -1].axhline(0.01, color="black", ls="--")
+ax[0, -1].set_xlabel("epoch")
+ax[0, -1].set_title("whole image NRMSE")
+ax[0, -1].grid(ls=":")
+ax[0, -1].legend()
+
+ax[-1, -1].set_axis_off()
+
 fig.show()
