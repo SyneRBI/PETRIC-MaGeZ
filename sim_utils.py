@@ -282,7 +282,6 @@ class SVRG:
         precond_update_epochs: None | list[int] = None,
         verbose: bool = False,
         seed: int = 1,
-        **kwargs,
     ):
 
         np.random.seed(seed)
@@ -329,6 +328,7 @@ class SVRG:
         self._subset_number_list = []
         self._precond = self.calc_precond(self._x)
         self._step_size = 1.0
+        self._prior_diag_hess = None
 
     @property
     def epoch(self) -> int:
@@ -362,9 +362,11 @@ class SVRG:
         x_sm = self._precond_filter(x)
         delta = delta_rel * x_sm.max()
 
-        prior_diag_hess = self._prior.diag_hessian(x_sm)
+        self._prior_diag_hess = self._prior.diag_hessian(x_sm)
 
-        precond = (x_sm + delta) / (self._adjoint_ones + 2 * prior_diag_hess * x_sm)
+        precond = (x_sm + delta) / (
+            self._adjoint_ones + 2 * self._prior_diag_hess * x_sm
+        )
 
         return precond
 
@@ -431,6 +433,237 @@ class SVRG:
 
         # enforce non-negative constraint
         self._xp.clip(self._x, 0, None, out=self._x)
+
+        self._update += 1
+
+    def run(
+        self, num_updates: int, callback: None | Callable[[Array], float] = None
+    ) -> list:
+
+        callback_res = []
+
+        for _ in range(num_updates):
+            if callback is not None:
+                callback_res.append(callback(self._x))
+            self.update()
+
+        return callback_res
+
+    def create_subset_number_list(self):
+        tmp = np.arange(self._num_subsets)
+        np.random.shuffle(tmp)
+        self._subset_number_list = tmp.tolist()
+
+
+class ProxRDP:
+    def __init__(
+        self,
+        prior: SmoothFunctionWithDiagonalHessian,
+        init_step: float = 1.0,
+        niter: int = 5,
+        up: float = 1.1,
+        down: float = 2.0,
+    ):
+        self._prior = prior
+        self._step = init_step
+        self._niter = niter
+        self._up = up
+        self._down = down
+
+    @property
+    def prior(self) -> SmoothFunctionWithDiagonalHessian:
+        return self._prior
+
+    def __call__(
+        self, z, tau, T: float | Array = 1.0, precond: float | Array = 1.0
+    ) -> Array:
+
+        xp = get_namespace(z)
+
+        u = xp.clip(z, 0, None)
+
+        for k in range(self._niter):
+            # compute gradient step
+            grad = T * (u - z) + tau * self._prior.gradient(u)
+            tmp = u - self._step * precond * grad
+
+            u_new = xp.clip(tmp, 0, None)
+
+            # update step size
+            diff_new = xp.linalg.norm(u_new - u)
+
+            if k == 0:
+                u = u_new
+                diff = diff_new
+            else:
+                if diff_new <= diff:
+                    self._step *= self._up
+                    u = u_new
+                    diff = diff_new
+                else:
+                    self._step /= self._down
+
+        return u
+
+
+class ProxSVRG:
+    def __init__(
+        self,
+        subset_neglogL: SmoothSubsetFunction,
+        prior_prox,
+        x_init: Array,
+        complete_gradient_epochs: None | list[int] = None,
+        precond_update_epochs: None | list[int] = None,
+        verbose: bool = False,
+        seed: int = 1,
+        **kwargs,
+    ):
+
+        np.random.seed(seed)
+
+        self._verbose = verbose
+        self._subset = 0
+        self._x = x_init
+
+        self._subset_neglogL = subset_neglogL
+
+        self._num_subsets = subset_neglogL.num_subsets
+
+        self._xp = get_namespace(x_init)
+        self._dev = device(x_init)
+
+        self._adjoint_ones = self._xp.zeros_like(x_init)
+
+        # calculate adjoint ones of data operator
+        for i in range(self._num_subsets):
+            self._adjoint_ones += self._subset_neglogL.subset_fwd_operators[i].adjoint(
+                self._xp.ones(
+                    self._subset_neglogL.subset_fwd_operators[i].out_shape,
+                    device=self._dev,
+                )
+            )
+
+        if complete_gradient_epochs is None:
+            self._complete_gradient_epochs: list[int] = [x for x in range(0, 1000, 2)]
+        else:
+            self._complete_gradient_epochs = complete_gradient_epochs
+
+        if precond_update_epochs is None:
+            self._precond_update_epochs: list[int] = [1, 2, 3]
+        else:
+            self._precond_update_epochs = precond_update_epochs
+
+        self._precond_filter = parallelproj.GaussianFilterOperator(
+            x_init.shape, sigma=2.0
+        )
+
+        self._update = 0
+        self._step_size_factor = 1.0
+        self._subset_number_list = []
+        self._prior_prox = prior_prox
+        self._prior_diag_hess = None
+        self._precond = self.calc_precond(self._x)
+        self._step_size = 1.0
+
+        self._subset_gradients = []
+        self._summed_subset_gradients = None
+
+    @property
+    def epoch(self) -> int:
+        return self._update // self._num_subsets
+
+    @property
+    def x(self) -> Array:
+        return self._x
+
+    def update_step_size(self):
+        # if self.epoch <= 4:
+        #    self._step_size = self._step_size_factor * 2.0
+        # elif self.epoch > 4 and self.epoch <= 8:
+        #    self._step_size = self._step_size_factor * 1.5
+        # elif self.epoch > 8 and self.epoch <= 12:
+        #    self._step_size = self._step_size_factor * 1.0
+        # else:
+        #    self._step_size = self._step_size_factor * 0.5
+
+        self._step_size = 1e0
+
+        if self._verbose:
+            print(self._update, self.epoch, self._step_size)
+
+    def calc_precond(
+        self,
+        x: Array,
+        delta_rel: float = 1e-6,
+    ) -> Array:
+
+        # generate a smoothed version of the input image
+        # to avoid high values, especially in first and last slices
+        x_sm = self._precond_filter(x)
+        delta = delta_rel * x_sm.max()
+
+        self._prior_diag_hess = self._prior_prox.prior.diag_hessian(x_sm)
+
+        precond = (x_sm + delta) / (
+            self._adjoint_ones + 2 * self._prior_diag_hess * x_sm
+        )
+
+        return precond
+
+    def update_all_subset_gradients(self) -> None:
+
+        self._subset_gradients = self._subset_neglogL.all_subset_gradients(self._x)
+        self._summed_subset_gradients = sum(self._subset_gradients)
+
+    def update(self):
+
+        update_all_subset_gradients = (
+            self._update % self._num_subsets == 0
+        ) and self.epoch in self._complete_gradient_epochs
+
+        update_precond = (
+            self._update % self._num_subsets == 0
+        ) and self.epoch in self._precond_update_epochs
+
+        if self._update % self._num_subsets == 0:
+            self.update_step_size()
+
+        if update_precond:
+            if self._verbose:
+                print(f"  {self._update}, updating preconditioner")
+            self._precond = self.calc_precond(self._x)
+
+        if update_all_subset_gradients:
+            if self._verbose:
+                print(
+                    f"  {self._update}, {self._subset}, recalculating all subset gradients"
+                )
+            self.update_all_subset_gradients()
+            approximated_gradient = self._summed_subset_gradients
+        else:
+            if self._subset_number_list == []:
+                self.create_subset_number_list()
+
+            self._subset = self._subset_number_list.pop()
+            if self._verbose:
+                print(f" {self._update}, {self._subset}, subset gradient update")
+
+            approximated_gradient = (
+                self._num_subsets
+                * (
+                    self._subset_neglogL.subset_gradient(self._x, self._subset)
+                    - self._subset_gradients[self._subset]
+                )
+                + self._summed_subset_gradients
+            )
+
+        tmp = self._x - self._step_size * self._precond * approximated_gradient
+
+        tau = self._step_size
+        T = self._precond
+        self._x = self._prior_prox(
+            tmp, tau=tau, T=T, precond=(T + tau * self._prior_diag_hess) ** (-1)
+        )
 
         self._update += 1
 

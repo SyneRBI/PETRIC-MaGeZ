@@ -16,7 +16,14 @@ from array_api_compat import to_device
 from scipy.optimize import fmin_l_bfgs_b
 from pathlib import Path
 
-from sim_utils import SubsetNegPoissonLogLWithPrior, split_fwd_model, OSEM, SVRG
+from sim_utils import (
+    SubsetNegPoissonLogLWithPrior,
+    split_fwd_model,
+    OSEM,
+    SVRG,
+    ProxSVRG,
+    ProxRDP,
+)
 
 from rdp import RDP
 
@@ -337,136 +344,22 @@ subset_neglogL = SubsetNegPoissonLogLWithPrior(
 svrg_alg = SVRG(subset_neglogL, prior, x_init, verbose=False)
 nrmse_svrg = svrg_alg.run(num_epochs * num_subsets, callback=nmrse_callback)
 
+# %%
+prior_prox = ProxRDP(prior)
+
+proxsvrg_alg = ProxSVRG(
+    subset_neglogL, prior_prox, x_init, verbose=False, niter=10, init_step=1.0
+)
+nrmse_proxsvrg = proxsvrg_alg.run(num_epochs * num_subsets, callback=nmrse_callback)
+
 fig, ax = plt.subplots(tight_layout=True)
-ax.semilogy(np.arange(num_subsets * num_epochs) / num_subsets, nrmse_svrg)
+ax.semilogy(np.arange(num_subsets * num_epochs) / num_subsets, nrmse_svrg, label="SVRG")
+ax.semilogy(
+    np.arange(num_subsets * num_epochs) / num_subsets, nrmse_proxsvrg, label="ProxSVRG"
+)
 ax.axhline(0.01, color="black", ls="--")
 ax.set_xlabel("epoch")
 ax.set_ylabel("whole image NRMSE")
+ax.grid(ls=":")
+ax.legend()
 fig.show()
-
-
-## %%
-# x_svrgs = []
-#
-# num_updates_sgd = num_epochs_sgd * num_subsets_sgd
-#
-# cost_svrg = np.zeros((len(step_sizes), num_updates_sgd))
-# nrmse_svrg = np.zeros((len(step_sizes), num_updates_sgd))
-#
-## SVRG
-# for i, step_size in enumerate(step_sizes):
-#    print(f"SVRG {i}, init step size: {step_size}")
-#    svrg_alg = SVRG(cost_function, x_init)
-#    svrg_alg.step_size = step_size
-#    svrg_alg.precond = init_precond
-#
-#    x_cur = x_init.copy()
-#
-#    for j in range(num_updates_sgd):
-#        epoch = j // num_subsets_sgd
-#        subset = j % num_subsets_sgd
-#
-#        if subset == 0:
-#            print(f"  epoch {epoch}")
-#
-#        line_search = False
-#        if epoch == 0 and subset < 4 and step_size == 0:
-#            line_search = True
-#
-#        if (epoch in precond_update_epochs) and (subset == 0):
-#            print(f"  update {j}, updating preconditioner")
-#            svrg_alg.precond = rdp_preconditioner(
-#                x_cur,
-#                adjoint_ones,
-#                prior,
-#                precond_version,
-#            )
-#
-#        if (epoch in svrg_gradient_recalc_periods) and (subset == 0):
-#            x_cur = svrg_alg.update(
-#                x_cur, recalc_subset_gradients=True, line_search=line_search
-#            )
-#        else:
-#            x_cur = svrg_alg.update(
-#                x_cur, recalc_subset_gradients=False, line_search=line_search
-#            )
-#
-#        if track_cost:
-#            cost_svrg[i, j] = cost_function(x_cur)
-#        nrmse_svrg[i, j] = xp.sqrt(xp.mean((x_ref - x_cur) ** 2)) / scale_fac
-#
-#        if decrease_step_size and (subset == 0) and (j > 0):
-#            if svrg_alg.step_size > min_step_size:
-#                svrg_alg.step_size *= step_size_decay_factor
-#                print(f"  update {j}, decreasing step size {svrg_alg.step_size}")
-#
-#    x_svrgs.append(x_cur)
-#
-## %%
-## SVRG plots
-#
-# vmax = 1.2 * float(xp.max(x_true))
-#
-# num_rows = 3
-# num_cols = len(step_sizes) + 1
-#
-# sl = img_shape[2] // 2
-#
-# fig, ax = plt.subplots(
-#    num_rows, num_cols, figsize=(num_cols * 3, num_rows * 3), tight_layout=True
-# )
-# ax[0, -1].imshow(
-#    to_device(x_ref[:, :, img_shape[2] // 2], "cpu"),
-#    cmap="Greys",
-#    vmin=0,
-#    vmax=1.2 * float(xp.max(x_true)),
-# )
-# ax[0, -1].set_title(f"ref. (L-BFGS-B)", fontsize="medium")
-# ax[2, -1].set_axis_off()
-#
-# for ig, step_size in enumerate(step_sizes):
-#    ax[0, ig].imshow(
-#        to_device(x_svrgs[ig][:, :, img_shape[2] // 2], "cpu"),
-#        cmap="Greys",
-#        vmin=0,
-#        vmax=1.2 * float(xp.max(x_true)),
-#    )
-#    ax[1, ig].imshow(
-#        to_device(
-#            (x_svrgs[ig][:, :, sl] - x_ref[:, :, sl]) / (x_ref[:, :, sl] + 1e-3),
-#            "cpu",
-#        ),
-#        cmap="seismic",
-#        vmin=-0.2,
-#        vmax=0.2,
-#    )
-#    ax[2, ig].imshow(
-#        to_device(
-#            ((x_svrgs[ig][:, :, sl] - x_ref[:, :, sl]) / (x_ref[:, :, sl] + 1e-3))
-#            > 0.01,
-#            "cpu",
-#        ),
-#        cmap="Greys",
-#    )
-#    ax[0, ig].set_title(
-#        f"SVRG, step size {step_size}, {num_subsets_sgd}ss", fontsize="small"
-#    )
-#    ax[1, ig].set_title(f"rel. bias", fontsize="small")
-#    ax[2, ig].set_title(f"rel. bias > 1%", fontsize="small")
-#
-#    ax[1, -1].plot(
-#        np.arange(num_updates_sgd) / num_subsets_sgd,
-#        nrmse_svrg[ig],
-#        label=f"step size {step_size}",
-#    )
-#
-# ax[1, -1].set_title(f"NRMSE", fontsize="medium")
-# ax[1, -1].set_xlabel(f"epoch")
-# ax[1, -1].axhline(0.01, color="black", ls="--")
-# ax[1, -1].legend()
-# ax[1, -1].set_ylim(0, float(nrmse_init))
-# ax[1, -1].grid(ls=":")
-# fig.suptitle(f"True counts {true_counts:.2E}, prior RDP, beta {beta:.2E}, seed {seed}")
-# fig.savefig(sim_path / f"fig_svrg_{sl}.png")
-# fig.show()
-#
