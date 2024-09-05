@@ -282,6 +282,7 @@ class SVRG:
         precond_update_epochs: None | list[int] = None,
         verbose: bool = False,
         seed: int = 1,
+        precond_version: int = 2,
     ):
 
         np.random.seed(seed)
@@ -326,6 +327,7 @@ class SVRG:
         self._update = 0
         self._step_size_factor = 1.0
         self._subset_number_list = []
+        self._precond_version = precond_version
         self._precond = self.calc_precond(self._x)
         self._step_size = 1.0
         self._prior_diag_hess = None
@@ -362,11 +364,16 @@ class SVRG:
         x_sm = self._precond_filter(x)
         delta = delta_rel * x_sm.max()
 
-        self._prior_diag_hess = self._prior.diag_hessian(x_sm)
+        if self._precond_version == 1:
+            precond = (x_sm + delta) / self._adjoint_ones
+        elif self._precond_version == 2:
+            self._prior_diag_hess = self._prior.diag_hessian(x_sm)
 
-        precond = (x_sm + delta) / (
-            self._adjoint_ones + 2 * self._prior_diag_hess * x_sm
-        )
+            precond = (x_sm + delta) / (
+                self._adjoint_ones + 2 * self._prior_diag_hess * x_sm
+            )
+        else:
+            raise ValueError(f"Unknown preconditioner version {self._precond_version}")
 
         return precond
 
@@ -522,6 +529,7 @@ class ProxSVRG:
         precond_update_epochs: None | list[int] = None,
         verbose: bool = False,
         seed: int = 1,
+        precond_version: int = 2,
         **kwargs,
     ):
 
@@ -568,6 +576,7 @@ class ProxSVRG:
         self._subset_number_list = []
         self._prior_prox = prior_prox
         self._prior_diag_hess = None
+        self._precond_version = precond_version
         self._precond = self.calc_precond(self._x)
         self._step_size = 1.0
 
@@ -606,11 +615,16 @@ class ProxSVRG:
         x_sm = self._precond_filter(x)
         delta = delta_rel * x_sm.max()
 
-        self._prior_diag_hess = self._prior_prox.prior.diag_hessian(x_sm)
+        if self._precond_version == 1:
+            precond = (x_sm + delta) / self._adjoint_ones
+        elif self._precond_version == 2:
+            self._prior_diag_hess = self._prior_prox.prior.diag_hessian(x_sm)
 
-        precond = (x_sm + delta) / (
-            self._adjoint_ones + 2 * self._prior_diag_hess * x_sm
-        )
+            precond = (x_sm + delta) / (
+                self._adjoint_ones + 2 * self._prior_diag_hess * x_sm
+            )
+        else:
+            raise ValueError(f"Unknown preconditioner version {self._precond_version}")
 
         return precond
 
@@ -665,9 +679,13 @@ class ProxSVRG:
 
         tau = self._step_size
         T = self._precond
-        self._x = self._prior_prox(
-            tmp, tau=tau, T=T, precond=1 / (1 / T + tau * self._prior_diag_hess)
-        )
+
+        if self._precond_version == 1:
+            pc = 1 / T
+        elif self._precond_version == 2:
+            pc = 1 / (1 / T + tau * self._prior_diag_hess)
+
+        self._x = self._prior_prox(tmp, tau=tau, T=T, precond=pc)
 
         self._update += 1
 

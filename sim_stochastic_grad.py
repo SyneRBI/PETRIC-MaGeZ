@@ -46,9 +46,11 @@ true_counts = 1e6
 beta = 5e-5 * (true_counts / 1e6)
 # RDP gamma parameter
 gamma_rdp = 2.0
+# precond version: 1: x / A^T 1, 2: x / (A^T + 2*diag_hess_rdp(x)*x)
+precond_version = 2
 
 # number of epochs / subsets for stochastic gradient algorithms
-num_epochs = 10
+num_epochs = 20
 num_subsets = 27
 
 # max number of updates for reference L-BFGS-B solution
@@ -341,13 +343,17 @@ subset_neglogL = SubsetNegPoissonLogLWithPrior(
     data, pet_subset_lin_op_seq, contamination, subset_slices, prior=None
 )
 
-svrg_alg = SVRG(subset_neglogL, prior, x_init, verbose=False)
+svrg_alg = SVRG(
+    subset_neglogL, prior, x_init, verbose=False, precond_version=precond_version
+)
 nrmse_svrg = svrg_alg.run(num_epochs * num_subsets, callback=nmrse_callback)
 
 # %%
 prior_prox = ProxRDP(prior, niter=4, init_step=1.0, adaptive_step_size=False)
 
-proxsvrg_alg = ProxSVRG(subset_neglogL, prior_prox, x_init, verbose=False)
+proxsvrg_alg = ProxSVRG(
+    subset_neglogL, prior_prox, x_init, verbose=False, precond_version=precond_version
+)
 nrmse_proxsvrg = proxsvrg_alg.run(num_epochs * num_subsets, callback=nmrse_callback)
 
 # %%
