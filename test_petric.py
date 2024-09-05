@@ -417,9 +417,8 @@ if __name__ == "__main__":
             precond_update_epochs=precond_update_epochs,
         )
     else:
-        # for i in range(4):
         for i in [0, 1, 3, 2]:
-            for ns in [25, 50, 10]:
+            for ns in [25]:
                 test_petric(
                     ds=i, num_iter=300, suffix=f"num_sub_{ns}", approx_num_subsets=ns
                 )
