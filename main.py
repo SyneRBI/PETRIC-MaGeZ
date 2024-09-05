@@ -242,18 +242,10 @@ class Submission(Algorithm):
     def update_all_subset_gradients(self) -> None:
 
         self._summed_subset_gradients = self.x.get_uniform_copy(0)
-        self._subset_gradients = []
-
-        subset_prior_gradient = self._subset_prior_fct.gradient(self.x)
-
-        # remember that the objective has to be maximized
-        # posterior = log likelihood - log prior ("minus" instead of "plus"!)
-        for i in range(self._num_subsets):
-            self._subset_gradients.append(
-                self._subset_likelihood_funcs[i].gradient(self.x)
-                - subset_prior_gradient
-            )
-            self._summed_subset_gradients += self._subset_gradients[i]
+        self._subset_gradients = [
+            f.gradient(self.x) for f in self._subset_likelihood_funcs
+        ]
+        self._summed_subset_gradients = sum(self._subset_gradients)
 
     def update(self):
 
@@ -288,27 +280,33 @@ class Submission(Algorithm):
             if self._verbose:
                 print(f" {self._update}, {self.subset}, subset gradient update")
 
-            subset_prior_gradient = self._subset_prior_fct.gradient(self.x)
-
             # remember that the objective has to be maximized
             # posterior = log likelihood - log prior ("minus" instead of "plus"!)
             approximated_gradient = (
                 self._num_subsets
                 * (
-                    (
-                        self._subset_likelihood_funcs[self.subset].gradient(self.x)
-                        - subset_prior_gradient
-                    )
+                    self._subset_likelihood_funcs[self.subset].gradient(self.x)
                     - self._subset_gradients[self.subset]
                 )
                 + self._summed_subset_gradients
             )
 
         ### Objective has to be maximized -> "+" for gradient ascent
-        self.x = self.x + self._step_size * self._precond * approximated_gradient
+        # "data fidelity" step
+        tmp = self.x + self._step_size * self._precond * approximated_gradient
 
-        # enforce non-negative constraint
-        self.x.maximum(0, out=self.x)
+        # call the approximation of the prox of RDP + non-negative constraint
+        # XXX
+
+        tau = self._step_size
+        T = self._precond
+        prior_prox_pc = 1 / (1 / T + tau * self._prior_diag_hess)
+
+        import pdb
+
+        pdb.set_trace()
+
+        # self.x = self._prior_prox(tmp, tau=tau, T=T, precond=prior_prox_pc)
 
         self._update += 1
 
