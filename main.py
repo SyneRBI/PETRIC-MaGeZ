@@ -174,7 +174,9 @@ class Submission(Algorithm):
             eps=data.prior.get_epsilon(),
             gamma=data.prior.get_gamma(),
         )
-        self._python_prior.kappa = xp.asarray(data.kappa.as_array(), device=self._dev)
+        self._python_prior.kappa = xp.asarray(
+            data.kappa.as_array().astype(xp.float64), device=self._dev
+        )
         self._python_prior.scale = penalization_factor
 
         self._precond_filter = STIR.SeparableGaussianImageFilter()
@@ -222,7 +224,7 @@ class Submission(Algorithm):
         prior_diag_hess.fill(
             to_device(
                 self._python_prior.diag_hessian(
-                    xp.asarray(x_sm.as_array(), device=self._dev)
+                    xp.asarray(x_sm.as_array().astype(xp.float64), device=self._dev)
                 ),
                 "cpu",
             )
