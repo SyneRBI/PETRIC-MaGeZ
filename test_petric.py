@@ -342,6 +342,9 @@ def test_petric(ds: int, num_iter: int, suffix: str = "", **kwargs):
     elif ds == 3:
         srcdir = SRCDIR / "Siemens_mMR_ACR"
         outdir = OUTDIR / "Siemens_mMR_ACR" / sdir_name
+    elif ds == 4:
+        srcdir = SRCDIR / "Mediso_NEMA_IQ"
+        outdir = OUTDIR / "Mediso_NEMA_IQ" / sdir_name
     else:
         raise ValueError(f"Unknown data set {ds}")
 
@@ -417,9 +420,11 @@ if __name__ == "__main__":
             precond_update_epochs=precond_update_epochs,
         )
     else:
-        # for i in range(4):
-        for i in [0, 1, 3, 2]:
-            for ns in [25, 50, 10]:
+        for ns in [25, 40, 12]:
+            for i in range(5):
                 test_petric(
-                    ds=i, num_iter=300, suffix=f"num_sub_{ns}", approx_num_subsets=ns
+                    ds=i,
+                    num_iter=200,
+                    approx_num_subsets=ns,
+                    suffix=f"ns_{ns}",
                 )

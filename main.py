@@ -179,6 +179,9 @@ class Submission(Algorithm):
         )
         self._python_prior.scale = penalization_factor
 
+        # small relative number for the preconditioner (to avoid zeros in the preconditioner)
+        self._precond_delta_rel = 0.0  # 1e-6
+
         self._precond_filter = STIR.SeparableGaussianImageFilter()
         self._precond_filter.set_fwhms([5.0, 5.0, 5.0])
         self._precond_filter.set_up(data.OSEM_image)
@@ -212,13 +215,11 @@ class Submission(Algorithm):
     def calc_precond(
         self,
         x: STIR.ImageData,
-        delta_rel: float = 1e-6,
     ) -> STIR.ImageData:
 
         # generate a smoothed version of the input image
         # to avoid high values, especially in first and last slices
         x_sm = self._precond_filter.process(x)
-        delta = delta_rel * x_sm.max()
 
         prior_diag_hess = x_sm.get_uniform_copy(0)
         prior_diag_hess.fill(
@@ -230,9 +231,12 @@ class Submission(Algorithm):
             )
         )
 
+        if self._precond_delta_rel > 0:
+            x_sm += self._precond_delta_rel * x_sm.max()
+
         precond = (
             self._fov_mask
-            * (x_sm + delta)
+            * x_sm
             / (
                 self._adjoint_ones
                 + (self._precond_hessian_factor * 2) * prior_diag_hess * x_sm
