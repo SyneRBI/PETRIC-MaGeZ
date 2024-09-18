@@ -67,7 +67,8 @@ class Submission(Algorithm):
         update_objective_interval: int | None = None,
         complete_gradient_epochs: None | list[int] = None,
         precond_update_epochs: None | list[int] = None,
-        precond_hessian_factor: float = 1.0,
+        precond_hessian_factor: float = 0.75,
+        precond_filter_fwhm_mm: float = 5.0,
         verbose: bool = False,
         seed: int = 1,
         **kwargs,
@@ -183,7 +184,9 @@ class Submission(Algorithm):
         self._precond_delta_rel = 0.0  # 1e-6
 
         self._precond_filter = STIR.SeparableGaussianImageFilter()
-        self._precond_filter.set_fwhms([5.0, 5.0, 5.0])
+        self._precond_filter.set_fwhms(
+            [precond_filter_fwhm_mm, precond_filter_fwhm_mm, precond_filter_fwhm_mm]
+        )
         self._precond_filter.set_up(data.OSEM_image)
 
         # calculate the initial preconditioner based on the initial image

@@ -420,11 +420,15 @@ if __name__ == "__main__":
             precond_update_epochs=precond_update_epochs,
         )
     else:
-        for ns in [25, 40, 12]:
+        for ns in [25]:
             for i in range(5):
-                test_petric(
-                    ds=i,
-                    num_iter=200,
-                    approx_num_subsets=ns,
-                    suffix=f"ns_{ns}",
-                )
+                for fwhm in [3.0, 1.0, 7.0]:
+                    phf = 0.75
+                    test_petric(
+                        ds=i,
+                        num_iter=200,
+                        approx_num_subsets=ns,
+                        suffix=f"ns_{ns}_phf_{phf}_fwhm_{fwhm}",
+                        precond_hessian_factor=0.75,
+                        precond_filter_fwhm_mm=fwhm,
+                    )
