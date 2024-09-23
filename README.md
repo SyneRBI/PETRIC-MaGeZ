@@ -18,14 +18,16 @@ Better-preconditioned SVRG based on the works of:
 - J. Nuyts et al., ""A concave prior penalizing relative differences for maximum-a-posteriori reconstruction in emission tomography," in IEEE TNS, 49, 2022, [link](https://ieeexplore.ieee.org/document/998681)
 
 The update can be summarized as:
+
 $$
 x^+ = x + \alpha P \tilde{\nabla} f(x)
 $$
-where $\tilde{\nabla} f(x)$ is the SVRG stochatic gradient of a subset and
-$P$ is diagonal preconditioner calculated as the harmonic mean of of 
-$x / A^T 1$ and the diagonal of the Hessian of the RDP, as proposed.
-in Nuyts et al.
-The scalar step size $alpha$ is set to 2 in the first epochs and then decreased
+
+where $\tilde{\nabla} f(x)$ is the SVRG stochastic gradient of a subset and
+$P$ is a diagonal preconditioner calculated as the harmonic mean of
+$x / A^T 1$ and the diagonal of the Hessian of the RDP, as proposed
+in work of Nuyts et al.
+The scalar step size $\alpha$ is set to 2 in the first epochs and then decreased
 to 1 and finally to 0.5 in late epochs.
 
 ### ALG2
