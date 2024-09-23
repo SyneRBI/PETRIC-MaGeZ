@@ -345,6 +345,9 @@ def test_petric(ds: int, num_iter: int, suffix: str = "", **kwargs):
     elif ds == 4:
         srcdir = SRCDIR / "Mediso_NEMA_IQ"
         outdir = OUTDIR / "Mediso_NEMA_IQ" / sdir_name
+    elif ds == 5:
+        srcdir = SRCDIR / "Siemens_mMR_NEMA_IQ_lowcounts"
+        outdir = OUTDIR / "mMR_NEMA_lowcounts" / sdir_name
     else:
         raise ValueError(f"Unknown data set {ds}")
 
@@ -421,14 +424,9 @@ if __name__ == "__main__":
         )
     else:
         for ns in [25]:
-            for i in range(5):
-                for fwhm in [3.0, 1.0, 7.0]:
-                    phf = 0.75
-                    test_petric(
-                        ds=i,
-                        num_iter=200,
-                        approx_num_subsets=ns,
-                        suffix=f"ns_{ns}_phf_{phf}_fwhm_{fwhm}",
-                        precond_hessian_factor=0.75,
-                        precond_filter_fwhm_mm=fwhm,
-                    )
+            for i in [5]:
+                test_petric(
+                    ds=i,
+                    num_iter=200,
+                    approx_num_subsets=ns,
+                )
