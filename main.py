@@ -8,7 +8,7 @@ Once renamed or symlinked as `main.py`, it will be used by `petric.py` as follow
 >>> algorithm.run(np.inf, callbacks=metrics + submission_callbacks)
 """
 
-import sirf.STIR as STIR
+import math
 from cil.optimisation.algorithms import Algorithm
 from cil.optimisation.utilities import callbacks
 from petric import Dataset
@@ -17,6 +17,16 @@ from petric import Dataset
 from sirf.contrib.partitioner import partitioner
 
 import numpy as np
+
+
+def get_divisors(n):
+    """Returns a sorted list of all divisors of a positive integer n."""
+    divisors = set()
+    for i in range(1, int(math.sqrt(n)) + 1):
+        if n % i == 0:
+            divisors.add(i)
+            divisors.add(n // i)
+    return sorted(divisors)
 
 
 class MaxIteration(callbacks.Callback):
@@ -48,10 +58,11 @@ class Submission(Algorithm):
     def __init__(
         self,
         data: Dataset,
-        num_subsets: int = 28,
-        update_objective_interval: int = 10,
+        approx_num_subsets: int = 28,
+        update_objective_interval: int | None = None,
         base_gamma: float = 1.0,
         rho: float = 1.0,
+        seed: int = 1,
         **kwargs
     ):
         """
@@ -59,6 +70,9 @@ class Submission(Algorithm):
         NB: in practice, `num_subsets` should likely be determined from the data.
         This is just an example. Try to modify and improve it!
         """
+
+        np.random.seed(seed)
+
         self.acquisition_models = []
         self.prompts = []
         self.sensitivities = []
@@ -66,11 +80,11 @@ class Submission(Algorithm):
         self.x = data.OSEM_image.clone()
         self.prior = data.prior
 
-        self.num_subsets = num_subsets
-
-        # find views in each subset
-        # (note that SIRF can currently only do subsets over views)
-        views = data.mult_factors.dimensions()[2]
+        num_views = data.mult_factors.dimensions()[2]
+        num_views_divisors = np.array(get_divisors(num_views))
+        self.num_subsets = num_views_divisors[
+            np.argmin(np.abs(num_views_divisors - approx_num_subsets))
+        ]
 
         self.y = []
 
@@ -88,14 +102,13 @@ class Submission(Algorithm):
         self.rho = rho
         self.gamma = base_gamma / self.x.max()
 
-        Ts = []
         self.S_As = []
 
         ones_image = self.x.get_uniform_copy(1)
 
         Ts_np = np.zeros((self.num_subsets,) + self.x.shape)
 
-        for i in range(num_subsets):
+        for i in range(self.num_subsets):
             # we need to use the linear part of the acq. subset model
             # otherwise forward() includes already the additive term
             acqm = self.acquisition_models[i].get_linear_acquisition_model()
@@ -108,7 +121,12 @@ class Submission(Algorithm):
             # calculate step sizes S_As
             tmp = acqm.forward(ones_image)
 
-            self.S_As.append(tmp.power(-1) * (self.gamma * self.rho))
+            S_A = tmp.power(-1) * (self.gamma * self.rho)
+
+            # clip inf values
+            max_S_A = S_A.as_array()[S_A.as_array() != np.inf].max()
+            S_A.minimum(max_S_A, out=S_A)
+            self.S_As.append(S_A)
 
             # calcualte Ts
             tmp2 = acqm.backward(ones_subset_sino)
@@ -118,14 +136,33 @@ class Submission(Algorithm):
 
         self.T = self.x.get_uniform_copy(0)
         self.T.fill(Ts_np.min(0))
+        # clip inf values
+        max_T = self.T.as_array()[self.T.as_array() != np.inf].max()
+        self.T.minimum(max_T, out=self.T)
+
+        # derive FOV mask and multiply step size T with it
+        self.fov_mask = self.x.get_uniform_copy(0)
+        tmp = 1.0 * (data.OSEM_image.as_array() > 0)
+        self.fov_mask.fill(tmp)
+        self.T *= self.fov_mask
 
         self.zbar = self.z.clone()
         self.grad_h = None
+
+        self.subset_number_list = []
+
+        if update_objective_interval is None:
+            update_objective_interval = self.num_subsets
 
         super().__init__(update_objective_interval=update_objective_interval, **kwargs)
         self.configured = True  # required by Algorithm
 
     def update(self):
+        if self.subset_number_list == []:
+            self.create_subset_number_list()
+
+        self.subset = self.subset_number_list.pop()
+
         if self.grad_h is None:
             self.grad_h = self.prior.gradient(self.x)
 
@@ -145,7 +182,7 @@ class Submission(Algorithm):
         )
 
         # prox of convex conjugate of negative Poisson logL
-        tmp = (y_plus - 1) * (y_plus - 1) + 4 * self.S_As[self.subset] * self.data[
+        tmp = (y_plus - 1) * (y_plus - 1) + 4 * self.S_As[self.subset] * self.prompts[
             self.subset
         ]
         tmp.sqrt(out=tmp)
@@ -155,10 +192,12 @@ class Submission(Algorithm):
             y_plus - self.y[self.subset]
         )
 
+        self.y[self.subset] = y_plus
+
         self.z = self.z + delta_z
         self.zbar = self.z + self.num_subsets * delta_z
 
-        self.subset = (self.subset + 1) % len(self.prompts)
+        print(self.x.min(), self.x.max())
 
     def update_objective(self):
         """
@@ -167,5 +206,10 @@ class Submission(Algorithm):
         """
         return 0
 
+    def create_subset_number_list(self):
+        tmp = np.arange(self.num_subsets)
+        np.random.shuffle(tmp)
+        self.subset_number_list = tmp.tolist()
 
-submission_callbacks = [MaxIteration(660)]
+
+submission_callbacks = [MaxIteration(300)]
