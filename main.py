@@ -63,7 +63,7 @@ class Submission(Algorithm):
         base_gamma: float = 1.0,
         rho: float = 1.0,
         seed: int = 1,
-        **kwargs
+        **kwargs,
     ):
         """
         Initialisation function, setting up data & (hyper)parameters.
@@ -104,8 +104,6 @@ class Submission(Algorithm):
 
         self.S_As = []
 
-        ones_image = self.x.get_uniform_copy(1)
-
         Ts_np = np.zeros((self.num_subsets,) + self.x.shape)
 
         for i in range(self.num_subsets):
@@ -114,11 +112,14 @@ class Submission(Algorithm):
             acqm = self.acquisition_models[i].get_linear_acquisition_model()
             ones_subset_sino = self.prompts[i].get_uniform_copy(1)
 
-            self.y.append(-(self.prompts[i] / acqm.forward(self.x)) + 1)
+            self.y.append(
+                -(self.prompts[i] / self.acquisition_models[i].forward(self.x)) + 1
+            )
 
             self.z += acqm.backward(self.y[i])
 
             # calculate step sizes S_As
+            ones_image = self.x.get_uniform_copy(1)
             tmp = acqm.forward(ones_image)
 
             S_A = tmp.power(-1) * (self.gamma * self.rho)
@@ -126,6 +127,7 @@ class Submission(Algorithm):
             # clip inf values
             max_S_A = S_A.as_array()[S_A.as_array() != np.inf].max()
             S_A.minimum(max_S_A, out=S_A)
+            # np.save(f"S_A_{i}", S_A.as_array())
             self.S_As.append(S_A)
 
             # calcualte Ts
@@ -134,6 +136,7 @@ class Submission(Algorithm):
                 self.rho / (self.gamma * self.num_subsets)
             ) / tmp2.as_array()
 
+        Ts_np = np.nan_to_num(Ts_np, posinf=0)
         self.T = self.x.get_uniform_copy(0)
         self.T.fill(Ts_np.min(0))
         # clip inf values
@@ -145,6 +148,7 @@ class Submission(Algorithm):
         tmp = 1.0 * (data.OSEM_image.as_array() > 0)
         self.fov_mask.fill(tmp)
         self.T *= self.fov_mask
+        np.save("T", self.T.as_array())
 
         self.zbar = self.z.clone()
         self.grad_h = None
@@ -158,23 +162,35 @@ class Submission(Algorithm):
         self.configured = True  # required by Algorithm
 
     def update(self):
+        include_prior = True
+
         if self.subset_number_list == []:
             self.create_subset_number_list()
 
         self.subset = self.subset_number_list.pop()
 
         if self.grad_h is None:
-            self.grad_h = self.prior.gradient(self.x)
+            self.grad_h = self.fov_mask * self.prior.gradient(self.x)
 
-        q = self.zbar + self.grad_h
+        if include_prior:
+            q = self.zbar + self.grad_h
+        else:
+            q = self.zbar
 
         self.x = self.x - self.T * q
         self.x.maximum(0, out=self.x)
 
-        grad_h_new = self.prior.gradient(self.x)
+        np.save(
+            f"x_{self.num_subsets - len(self.subset_number_list)}",
+            self.x.as_array(),
+        )
 
-        xbar = self.x + self.T * (self.grad_h - grad_h_new)
-        self.grad_h = grad_h_new
+        if include_prior:
+            grad_h_new = self.fov_mask * self.prior.gradient(self.x)
+            xbar = self.x + self.T * (self.grad_h - grad_h_new)
+            self.grad_h = grad_h_new
+        else:
+            xbar = self.x
 
         # forward step, remember that acq_model.forward includes the additive term
         y_plus = self.y[self.subset] + self.S_As[self.subset] * (
@@ -190,6 +206,16 @@ class Submission(Algorithm):
 
         delta_z = self.acquisition_models[self.subset].backward(
             y_plus - self.y[self.subset]
+        )
+
+        np.save(
+            f"delta_z_{self.num_subsets - len(self.subset_number_list)}",
+            delta_z.as_array(),
+        )
+
+        np.save(
+            f"y_plus_{self.num_subsets - len(self.subset_number_list)}",
+            y_plus.as_array(),
         )
 
         self.y[self.subset] = y_plus

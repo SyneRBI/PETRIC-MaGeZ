@@ -423,13 +423,15 @@ if __name__ == "__main__":
             precond_update_epochs=precond_update_epochs,
         )
     else:
-        for rho in [1.0, 1.5, 0.5]:
-            for bg in [1e7, 1e6, 1e5]:
+        for rho in [1.0]:
+            # for bg in [1e0, 1e-1, 1e1, 1e-2, 1e2]:
+            for bg in [3e0]:
                 # for i in range(5):
                 for i in [0]:
                     test_petric(
                         ds=i,
-                        num_iter=3 * 28,
+                        num_iter=1 * 28,
+                        approx_num_subsets=28,
                         base_gamma=bg,
                         rho=rho,
                         suffix=f"bg_{bg}_rho_{rho}_SPD3O",
