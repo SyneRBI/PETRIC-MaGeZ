@@ -348,6 +348,9 @@ def test_petric(ds: int, num_iter: int, suffix: str = "", **kwargs):
     elif ds == 5:
         srcdir = SRCDIR / "Siemens_mMR_NEMA_IQ_lowcounts"
         outdir = OUTDIR / "mMR_NEMA_lowcounts" / sdir_name
+    elif ds == 6:
+        srcdir = SRCDIR / "GE_DMI3_Torso"
+        outdir = OUTDIR / "GE_DMI3_Torso" / sdir_name
     else:
         raise ValueError(f"Unknown data set {ds}")
 
@@ -424,7 +427,7 @@ if __name__ == "__main__":
         )
     else:
         for ns in [25]:
-            for i in [5]:
+            for i in range(7):
                 test_petric(
                     ds=i,
                     num_iter=200,
