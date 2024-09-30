@@ -362,10 +362,4 @@ class Submission(Algorithm):
         if not self.coprimes:
             self._subset_number_list = [0] * 100
 
-
-        # tmp = np.arange(self._num_subsets)
-        # np.random.shuffle(tmp)
-        # self._subset_number_list = tmp.tolist()
-
-
-submission_callbacks = [MaxIteration(200)]
+submission_callbacks = []
