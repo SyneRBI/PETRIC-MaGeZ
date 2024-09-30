@@ -11,7 +11,7 @@ the [2024 PETRIC reconstruction challenge](https://github.com/SyneRBI/PETRIC).
 
 ## Algorithms
 
-### ALG1 (main branch)
+### ALG1 (main branch, ALG1 tag)
 
 Better-preconditioned SVRG based on the works of:
 - R. Twyman et al., "An Investigation of Stochastic Variance Reduction Algorithms for Relative Difference Penalized 3D PET Image Reconstruction," in IEEE TMI, 4, 2023, [link](https://ieeexplore.ieee.org/document/9872020)
@@ -30,13 +30,11 @@ in work of Nuyts et al.
 The scalar step size $\alpha$ is set to 3 in the first epochs and then decreased
 to 1 and finally to 0.5 in late epochs.
 
-### ALG2
+### ALG2 (AGL2 branch, ALG2 tag)
 
-foo bar
-
-### ALG3
-
-foo bar
+Similar to ALG1 but:
+The stepsize is set to 2.2 in the first epoch, and is then computed using the Barzilai-Borwein rule as described in Algorithm 2 in [https://arxiv.org/abs/1605.04131](https://arxiv.org/abs/1605.04131), 
+with m = 1 but using the short stepsize (see [https://en.wikipedia.org/wiki/Barzilai-Borwein_method]([https://en.wikipedia.org/wiki/Barzilai-Borwein_method])) adapted to preconditioned gradient ascent methods
 
 ---
 ---
