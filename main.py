@@ -373,4 +373,4 @@ class Submission(Algorithm):
         self._subset_number_list = tmp.tolist()
 
 
-submission_callbacks = [MaxIteration(200)]
+submission_callbacks = []
