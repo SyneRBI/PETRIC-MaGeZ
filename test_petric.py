@@ -27,7 +27,7 @@ import os
 import inspect
 import json
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePath
 from time import time
 from datetime import datetime
 
@@ -260,6 +260,8 @@ class Dataset:
     whole_object_mask: STIR.ImageData | None
     background_mask: STIR.ImageData | None
     voi_masks: dict[str, STIR.ImageData]
+    FOV_mask: STIR.ImageData
+    path: PurePath
 
 
 def get_data(srcdir=".", outdir=OUTDIR, sirf_verbosity=0):
@@ -281,6 +283,10 @@ def get_data(srcdir=".", outdir=OUTDIR, sirf_verbosity=0):
     additive_term = STIR.AcquisitionData(str(srcdir / "additive_term.hs"))
     mult_factors = STIR.AcquisitionData(str(srcdir / "mult_factors.hs"))
     OSEM_image = STIR.ImageData(str(srcdir / "OSEM_image.hv"))
+    # Find FOV mask
+    # WARNING: we are currently using Parralelproj with default settings, which uses a cylindrical FOV.
+    # The current code gives identical results to thresholding the sensitivity image (for those settings)
+    FOV_mask = STIR.TruncateToCylinderProcessor().process(OSEM_image.allocate(1))
     kappa = STIR.ImageData(str(srcdir / "kappa.hv"))
     if (penalty_strength_file := (srcdir / "penalisation_factor.txt")).is_file():
         penalty_strength = float(np.loadtxt(penalty_strength_file))
@@ -313,6 +319,8 @@ def get_data(srcdir=".", outdir=OUTDIR, sirf_verbosity=0):
         whole_object_mask,
         background_mask,
         voi_masks,
+        FOV_mask,
+        srcdir.resolve(),
     )
 
 

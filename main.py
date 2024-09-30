@@ -154,13 +154,10 @@ class Submission(Algorithm):
                 i
             ].get_subset_sensitivity(0)
 
-        self._fov_mask = self.x.get_uniform_copy(0)
-        # tmp = 1.0 * (self._adjoint_ones.as_array() > 0)
-        tmp = 1.0 * (data.OSEM_image.as_array() > 0)
-        self._fov_mask.fill(tmp)
+        self._fov_mask = data.FOV_mask
 
         # add a small number in the adjoint ones outside the FOV to avoid NaN in division
-        self._adjoint_ones += 1e-6 * (-self._fov_mask + 1.0)
+        self._adjoint_ones.maximum(1e-6, out=self._adjoint_ones)
 
         # initialize list / ImageData for all subset gradients and sum of gradients
         self._summed_subset_gradients = self.x.get_uniform_copy(0)
