@@ -2,7 +2,7 @@ import argparse
 import logging
 import os
 
-from ..data_utilities import prepare_challenge_Siemens_data, the_data_path
+from ..data_utilities import prepare_challenge_Siemens_data, the_data_path, the_orgdata_path
 
 this_directory = os.path.dirname(__file__)
 repo_directory = os.path.dirname(this_directory)
@@ -13,7 +13,7 @@ if __name__ == '__main__':
 
     parser.add_argument('--log', type=str, default='warning')
     parser.add_argument('--start', type=float, default=0)
-    parser.add_argument('--end', type=float, default=500)
+    parser.add_argument('--end', type=float, default=100)
     parser.add_argument('--raw_data_path', type=str, default=None)
     args = parser.parse_args()
 
@@ -26,16 +26,15 @@ if __name__ == '__main__':
     end = args.end
 
     if args.raw_data_path is None:
-        data_path = the_data_path('Siemens_mMR_NEMA_IQ', 'raw', 'NEMA_IQ')
+        data_path = the_orgdata_path('Siemens_mMR_NEMA_IQ', 'raw', 'NEMA_IQ')
     else:
         data_path = args.raw_data_path
 
     data_path = os.path.abspath(data_path)
     logging.debug(f"Raw data path: {data_path}")
 
-    challenge_data_path = os.path.join(challenge_data_path, 'Siemens_mMR_NEMA_IQ')
-    intermediate_data_path = os.path.join(challenge_data_path, 'processing')
-    challenge_data_path = os.path.join(challenge_data_path, 'final')
+    intermediate_data_path = the_orgdata_path('Siemens_mMR_NEMA_IQ_lowcounts', 'processing')
+    challenge_data_path = the_data_path('Siemens_mMR_NEMA_IQ_lowcounts')
 
     os.makedirs(challenge_data_path, exist_ok=True)
     os.chdir(challenge_data_path)

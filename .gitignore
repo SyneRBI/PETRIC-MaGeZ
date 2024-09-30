@@ -1,5 +1,6 @@
 data/
 orgdata/
+orgdata
 output/
 tmp*/
 err*.txt
@@ -13,5 +14,9 @@ __pycache__/
 *.ahv
 *.hv
 *.v
+*.csv
+# Tensorboard files
+events.*
+# user defined ignores
 output_magez*/
 sim_results/

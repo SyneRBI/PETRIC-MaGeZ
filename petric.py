@@ -43,7 +43,7 @@ class Callback(cil_callbacks.Callback):
     CIL Callback but with `self.skip_iteration` checking `min(self.interval, algo.update_objective_interval)`.
     TODO: backport this class to CIL.
     """
-    def __init__(self, interval: int = 1 << 31, **kwargs):
+    def __init__(self, interval: int = 1, **kwargs):
         super().__init__(**kwargs)
         self.interval = interval
 
@@ -73,10 +73,12 @@ class SaveIters(Callback):
 
 class StatsLog(Callback):
     """Log image slices & objective value"""
-    def __init__(self, transverse_slice=None, coronal_slice=None, vmax=None, logdir=OUTDIR, **kwargs):
+    def __init__(self, transverse_slice=None, coronal_slice=None, sagittal_slice=None, vmax=None, logdir=OUTDIR,
+                 **kwargs):
         super().__init__(**kwargs)
         self.transverse_slice = transverse_slice
         self.coronal_slice = coronal_slice
+        self.sagittal_slice = sagittal_slice
         self.vmax = vmax
         self.x_prev = None
         self.tb = logdir if isinstance(logdir, SummaryWriter) else SummaryWriter(logdir=str(logdir))
@@ -89,6 +91,7 @@ class StatsLog(Callback):
         # initialise `None` values
         self.transverse_slice = algo.x.dimensions()[0] // 2 if self.transverse_slice is None else self.transverse_slice
         self.coronal_slice = algo.x.dimensions()[1] // 2 if self.coronal_slice is None else self.coronal_slice
+        self.sagittal_slice = algo.x.dimensions()[2] // 2 if self.sagittal_slice is None else self.sagittal_slice
         self.vmax = algo.x.max() if self.vmax is None else self.vmax
 
         self.tb.add_scalar("objective", algo.get_last_loss(), algo.iteration, t)
@@ -97,15 +100,17 @@ class StatsLog(Callback):
             self.tb.add_scalar("normalised_change", normalised_change, algo.iteration, t)
         self.x_prev = algo.x.clone()
         x_arr = algo.x.as_array()
-        self.tb.add_image("transverse", np.clip(x_arr[self.transverse_slice:self.transverse_slice + 1] / self.vmax, 0,
-                                                1), algo.iteration, t)
+        self.tb.add_image("transverse", np.clip(x_arr[None, self.transverse_slice] / self.vmax, 0, 1), algo.iteration,
+                          t)
         self.tb.add_image("coronal", np.clip(x_arr[None, :, self.coronal_slice] / self.vmax, 0, 1), algo.iteration, t)
+        self.tb.add_image("sagittal", np.clip(x_arr[None, :, :, self.sagittal_slice] / self.vmax, 0, 1), algo.iteration,
+                          t)
         log.debug("...logged")
 
 
 class QualityMetrics(ImageQualityCallback, Callback):
     """From https://github.com/SyneRBI/PETRIC/wiki#metrics-and-thresholds"""
-    def __init__(self, reference_image, whole_object_mask, background_mask, interval: int = 1 << 31, **kwargs):
+    def __init__(self, reference_image, whole_object_mask, background_mask, interval: int = 3, **kwargs):
         # TODO: drop multiple inheritance once `interval` included in CIL
         Callback.__init__(self, interval=interval)
         ImageQualityCallback.__init__(self, reference_image, **kwargs)
@@ -141,13 +146,15 @@ class QualityMetrics(ImageQualityCallback, Callback):
 
 class MetricsWithTimeout(cil_callbacks.Callback):
     """Stops the algorithm after `seconds`"""
-    def __init__(self, seconds=600, outdir=OUTDIR, transverse_slice=None, coronal_slice=None, **kwargs):
+    def __init__(self, seconds=600, outdir=OUTDIR, transverse_slice=None, coronal_slice=None, sagittal_slice=None,
+                 **kwargs):
         super().__init__(**kwargs)
         self._seconds = seconds
         self.callbacks = [
             cil_callbacks.ProgressCallback(),
             SaveIters(outdir=outdir),
-            (tb_cbk := StatsLog(logdir=outdir, transverse_slice=transverse_slice, coronal_slice=coronal_slice))]
+            (tb_cbk := StatsLog(logdir=outdir, transverse_slice=transverse_slice, coronal_slice=coronal_slice,
+                                sagittal_slice=sagittal_slice))]
         self.tb = tb_cbk.tb # convenient access to the underlying SummaryWriter
         self.reset()
 
@@ -198,6 +205,7 @@ class Dataset:
     whole_object_mask: STIR.ImageData | None
     background_mask: STIR.ImageData | None
     voi_masks: dict[str, STIR.ImageData]
+    FOV_mask: STIR.ImageData
     path: PurePath
 
 
@@ -216,6 +224,10 @@ def get_data(srcdir=".", outdir=OUTDIR, sirf_verbosity=0):
     additive_term = STIR.AcquisitionData(str(srcdir / 'additive_term.hs'))
     mult_factors = STIR.AcquisitionData(str(srcdir / 'mult_factors.hs'))
     OSEM_image = STIR.ImageData(str(srcdir / 'OSEM_image.hv'))
+    # Find FOV mask
+    # WARNING: we are currently using Parralelproj with default settings, which uses a cylindrical FOV.
+    # The current code gives identical results to thresholding the sensitivity image (for those settings)
+    FOV_mask = STIR.TruncateToCylinderProcessor().process(OSEM_image.allocate(1))
     kappa = STIR.ImageData(str(srcdir / 'kappa.hv'))
     if (penalty_strength_file := (srcdir / 'penalisation_factor.txt')).is_file():
         penalty_strength = float(np.loadtxt(penalty_strength_file))
@@ -236,18 +248,34 @@ def get_data(srcdir=".", outdir=OUTDIR, sirf_verbosity=0):
         for voi in (srcdir / 'PETRIC').glob("VOI_*.hv") if voi.stem[4:] not in ('background', 'whole_object')}
 
     return Dataset(acquired_data, additive_term, mult_factors, OSEM_image, prior, kappa, reference_image,
-                   whole_object_mask, background_mask, voi_masks, srcdir.resolve())
+                   whole_object_mask, background_mask, voi_masks, FOV_mask, srcdir.resolve())
 
+
+DATA_SLICES = {
+    'Siemens_mMR_NEMA_IQ': {'transverse_slice': 72, 'coronal_slice': 109, 'sagittal_slice': 89},
+    'Siemens_mMR_NEMA_IQ_lowcounts': {'transverse_slice': 72, 'coronal_slice': 109, 'sagittal_slice': 89},
+    'Siemens_mMR_ACR': {'transverse_slice': 99}, 'NeuroLF_Hoffman_Dataset': {'transverse_slice': 72},
+    'Mediso_NEMA_IQ': {'transverse_slice': 22, 'coronal_slice': 89,
+                       'sagittal_slice': 66}, 'Siemens_Vision600_thorax': {}, 'GE_DMI3_Torso': {}}
 
 if SRCDIR.is_dir():
     # create list of existing data
     # NB: `MetricsWithTimeout` initialises `SaveIters` which creates `outdir`
-    data_dirs_metrics = [(SRCDIR / "Siemens_mMR_NEMA_IQ", OUTDIR / "mMR_NEMA",
-                          [MetricsWithTimeout(outdir=OUTDIR / "mMR_NEMA", transverse_slice=72, coronal_slice=109)]),
-                         (SRCDIR / "NeuroLF_Hoffman_Dataset", OUTDIR / "NeuroLF_Hoffman",
-                          [MetricsWithTimeout(outdir=OUTDIR / "NeuroLF_Hoffman", transverse_slice=72)]),
-                         (SRCDIR / "Siemens_Vision600_thorax", OUTDIR / "Vision600_thorax",
-                          [MetricsWithTimeout(outdir=OUTDIR / "Vision600_thorax")])]
+    data_dirs_metrics = [
+        (SRCDIR / "Siemens_mMR_NEMA_IQ", OUTDIR / "mMR_NEMA",
+         [MetricsWithTimeout(outdir=OUTDIR / "mMR_NEMA", **DATA_SLICES['Siemens_mMR_NEMA_IQ'])]),
+        (SRCDIR / "Siemens_mMR_NEMA_IQ_lowcounts", OUTDIR / "mMR_NEMA_lowcounts",
+         [MetricsWithTimeout(outdir=OUTDIR / "mMR_NEMA_lowcounts", **DATA_SLICES['Siemens_mMR_NEMA_IQ_lowcounts'])]),
+        (SRCDIR / "NeuroLF_Hoffman_Dataset", OUTDIR / "NeuroLF_Hoffman",
+         [MetricsWithTimeout(outdir=OUTDIR / "NeuroLF_Hoffman", **DATA_SLICES['NeuroLF_Hoffman_Dataset'])]),
+        (SRCDIR / "Siemens_Vision600_thorax", OUTDIR / "Vision600_thorax",
+         [MetricsWithTimeout(outdir=OUTDIR / "Vision600_thorax", **DATA_SLICES['Siemens_Vision600_thorax'])]),
+        (SRCDIR / "Siemens_mMR_ACR", OUTDIR / "mMR_ACR",
+         [MetricsWithTimeout(outdir=OUTDIR / "mMR_ACR", **DATA_SLICES['Siemens_mMR_ACR'])]),
+        (SRCDIR / "Mediso_NEMA_IQ", OUTDIR / "Mediso_NEMA",
+         [MetricsWithTimeout(outdir=OUTDIR / "Mediso_NEMA", **DATA_SLICES['Mediso_NEMA_IQ'])]),
+        (SRCDIR / "GE_DMI3_Torso", OUTDIR / "DMI3_Torso",
+         [MetricsWithTimeout(outdir=OUTDIR / "DMI3_Torso", **DATA_SLICES['GE_DMI3_Torso'])])]
 else:
     log.warning("Source directory does not exist: %s", SRCDIR)
     data_dirs_metrics = [(None, None, [])] # type: ignore
@@ -278,7 +306,7 @@ else:
         metrics_with_timeout.reset() # timeout from now
         algo = Submission(data)
         try:
-            algo.run(np.inf, callbacks=metrics + submission_callbacks)
+            algo.run(np.inf, callbacks=metrics + submission_callbacks, update_objective_interval=np.inf)
         except Exception:
             print_exc(limit=2)
         finally:
