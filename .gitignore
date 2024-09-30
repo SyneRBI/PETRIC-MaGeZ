@@ -13,3 +13,5 @@ __pycache__/
 *.ahv
 *.hv
 *.v
+output_magez*/
+sim_results/
