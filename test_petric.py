@@ -436,8 +436,4 @@ if __name__ == "__main__":
     else:
         for ns in [25]:
             for i in range(7):
-                test_petric(
-                    ds=i,
-                    num_iter=200,
-                    approx_num_subsets=ns,
-                )
+                test_petric(ds=i, num_iter=300, approx_num_subsets=ns)

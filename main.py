@@ -68,12 +68,7 @@ class MaxIteration(callbacks.Callback):
 
 class Submission(Algorithm):
     """
-    OSEM algorithm example.
-    NB: In OSEM, the multiplicative term cancels in the back-projection of the quotient of measured & estimated data
-    (so this is used here for efficiency). Note that a similar optimisation can be used for all algorithms using the Poisson log-likelihood.
-    NB: OSEM does not use `data.prior` and thus does not converge to the MAP reference used in PETRIC.
-    NB: this example does not use the `sirf.STIR` Poisson objective function.
-    NB: see https://github.com/SyneRBI/SIRF-Contribs/tree/master/src/Python/sirf/contrib/BSREM
+    Better preconditioned SVRG for PETRIC (MaGeZ ALG1)
     """
 
     def __init__(
@@ -81,19 +76,50 @@ class Submission(Algorithm):
         data: Dataset,
         approx_num_subsets: int = 25,  # approximate number of subsets, closest divisor of num_views will be used
         update_objective_interval: int | None = None,
-        complete_gradient_epochs: list[int] = [x for x in range(0, 1000, 2)],
+        complete_gradient_epochs: tuple[int, ...] = tuple(
+            [x for x in range(0, 1000, 2)]
+        ),
         step_size_update_function: Callable[[int], float] = step_size_rule_1,
-        precond_update_epochs: None | list[int] = None,
+        precond_update_epochs: tuple[int, ...] = (1, 2, 3),
         precond_hessian_factor: float = 1.5,
         precond_filter_fwhm_mm: float = 5.0,
         verbose: bool = False,
         seed: int = 1,
         **kwargs,
     ):
-        """
-        Initialisation function, setting up data & (hyper)parameters.
-        NB: in practice, `num_subsets` should likely be determined from the data.
-        This is just an example. Try to modify and improve it!
+        """better pre-conditioned SVRG for PETRIC
+           where the preconditioner is based on the voxel-wise harmonic mean
+           of the inverse of the diagonal of the Hessian of the RDP and x/(A^T 1)
+
+        Parameters
+        ----------
+        data : Dataset
+            a PETRIC dataset
+        approx_num_subsets : int, optional
+            the approximate number of subsets to use,
+            the actual number is chosen as the closeset divisor of thenumber of views,
+            by default 25
+        update_objective_interval : int | None, optional
+            interval by which the objective / metrics are updated, by default None
+        complete_gradient_epochs : tuple[int, ...], optional
+            epoch numbers in which all subset gradients are calculated for SVRG,
+            by default tuple([x for x in range(0, 1000, 2)])
+        step_size_update_function : Callable[[int], float], optional
+            function that return the step size given the update (iteration) number,
+            by default step_size_rule_1
+        precond_update_epochs : tuple[int, ...], optional
+            epoch numbers in which the preconditioner is updated,
+            by default (1, 2, 3)
+        precond_hessian_factor : float, optional
+            fudge factor in the harmonic mean that accounts for non-diag RDP Hessian elements,
+            by default 1.5
+        precond_filter_fwhm_mm : float, optional
+            FWHM (mm) of Gaussian filter that is applied to the image before preconditioner is calculated,
+            by default 5.0
+        verbose : bool, optional
+            print verbose outout, by default False
+        seed : int, optional
+            seed for numpy random generator (used to choose subsets), by default 1
         """
 
         np.random.seed(seed)
@@ -163,15 +189,9 @@ class Submission(Algorithm):
         self._summed_subset_gradients = self.x.get_uniform_copy(0)
         self._subset_gradients = []
 
-        if complete_gradient_epochs is None:
-            self._complete_gradient_epochs: list[int] = [x for x in range(0, 1000, 2)]
-        else:
-            self._complete_gradient_epochs = complete_gradient_epochs
+        self._complete_gradient_epochs = complete_gradient_epochs
 
-        if precond_update_epochs is None:
-            self._precond_update_epochs: list[int] = [1, 2, 3]
-        else:
-            self._precond_update_epochs = precond_update_epochs
+        self._precond_update_epochs = precond_update_epochs
 
         # setup python re-implementation of the RDP
         # only used to get the diagonal of the RDP Hessian for preconditioning!
@@ -213,13 +233,29 @@ class Submission(Algorithm):
         self.configured = True  # required by Algorithm
 
     @property
-    def epoch(self):
+    def epoch(self) -> int:
+        """Return the current epoch number"""
         return self._update // self._num_subsets
 
     def calc_precond(
         self,
         x: STIR.ImageData,
     ) -> STIR.ImageData:
+        """calculate the preconditioner based on the current image
+
+        Parameters
+        ----------
+        x : STIR.ImageData
+            current image
+
+        Returns
+        -------
+        STIR.ImageData
+            preconditioner
+        """
+
+        if self._verbose:
+            print("Updating preconditioner")
 
         # generate a smoothed version of the input image
         # to avoid high values, especially in first and last slices
@@ -250,6 +286,10 @@ class Submission(Algorithm):
         return precond
 
     def update_all_subset_gradients(self) -> None:
+        """calculate all subset gradients and the sum of gradients based on the current image"""
+
+        if self._verbose:
+            print("recalculating all subset gradients")
 
         self._summed_subset_gradients = self.x.get_uniform_copy(0)
         self._subset_gradients = []
@@ -266,6 +306,7 @@ class Submission(Algorithm):
             self._summed_subset_gradients += self._subset_gradients[i]
 
     def update(self):
+        """perform a single pre-conditioned SVRG update (iteration) step"""
 
         update_all_subset_gradients = (
             self._update % self._num_subsets == 0
@@ -282,15 +323,9 @@ class Submission(Algorithm):
             print(self._update, self._step_size)
 
         if update_precond:
-            if self._verbose:
-                print(f"  {self._update}, updating preconditioner")
             self._precond = self.calc_precond(self.x)
 
         if update_all_subset_gradients:
-            if self._verbose:
-                print(
-                    f"  {self._update}, {self.subset}, recalculating all subset gradients"
-                )
             self.update_all_subset_gradients()
             approximated_gradient = self._summed_subset_gradients
         else:
@@ -333,7 +368,9 @@ class Submission(Algorithm):
 
         self.loss.append(0)
 
-    def create_subset_number_list(self):
+    def create_subset_number_list(self) -> None:
+        """create a list of all subset numbers (in shuffled order)"""
+
         tmp = np.arange(self._num_subsets)
         np.random.shuffle(tmp)
         self._subset_number_list = tmp.tolist()
