@@ -1,3 +1,45 @@
+# MaGeZ contribution to the PETRIC reconstruction challenge
+
+This repository contains algorithms developed by the MaGeZ team submitted to
+the [2024 PETRIC reconstruction challenge](https://github.com/SyneRBI/PETRIC).
+
+## Authors
+
+- Matthias Ehrhardt, Univeristy of Bath, United Kingdom
+- Georg Schramm, KU Leuven, Belgium
+- Zeljko Kereta, Univeristy College London, United Kingdom
+
+## Algorithms
+
+### ALG1 (main branch, ALG1 tag)
+
+Better-preconditioned SVRG based on the works of:
+- R. Twyman et al., "An Investigation of Stochastic Variance Reduction Algorithms for Relative Difference Penalized 3D PET Image Reconstruction," in IEEE TMI, 4, 2023, [link](https://ieeexplore.ieee.org/document/9872020)
+- J. Nuyts et al., ""A concave prior penalizing relative differences for maximum-a-posteriori reconstruction in emission tomography," in IEEE TNS, 49, 2022, [link](https://ieeexplore.ieee.org/document/998681)
+
+The update can be summarized as:
+
+$$
+x^+ = x + \alpha P \tilde{\nabla} f(x)
+$$
+
+where $\tilde{\nabla} f(x)$ is the SVRG stochastic gradient of a subset and
+$P$ is a diagonal preconditioner calculated as the harmonic mean of
+$x / A^T 1$ and the inverse of diagonal of the Hessian of the RDP, as proposed
+in work of Nuyts et al.
+The scalar step size $\alpha$ is set to 3 in the first epochs and then decreased
+to 1 and finally to 0.5 in late epochs.
+
+### ALG2 (AGL2 branch, ALG2 tag)
+
+Similar to ALG1 but:
+The stepsize is set to 3 in the first 10 iterations, then 2.2 until the end of the first epoch, and is then computed using the Barzilai-Borwein rule as described in Algorithm 2 in [https://arxiv.org/abs/1605.04131](https://arxiv.org/abs/1605.04131), 
+with m = 1 but using the short stepsize (see [https://en.wikipedia.org/wiki/Barzilai-Borwein_method]([https://en.wikipedia.org/wiki/Barzilai-Borwein_method])) adapted to preconditioned gradient ascent methods
+
+---
+---
+---
+
 # PETRIC: PET Rapid Image reconstruction Challenge
 
 [![website](https://img.shields.io/badge/announcement-website-purple?logo=workplace&logoColor=white)](https://www.ccpsynerbi.ac.uk/events/petric/)
@@ -29,13 +71,10 @@ Additional dependencies may be specified via `apt.txt`, `environment.yml`, and/o
 
   ```yml
   name: winning-submission
-  channels: [conda-forge, pytorch, nvidia]
+  channels: [conda-forge, nvidia]
   dependencies:
   - cupy
   - cuda-version =11.8
-  - pytorch-cuda =11.8
-  - tensorflow-gpu
-  - cudatoolkit =11.8.0
   - pip
   - pip:
     - git+https://github.com/MyResearchGroup/prize-winning-algos
@@ -45,8 +84,6 @@ Additional dependencies may be specified via `apt.txt`, `environment.yml`, and/o
 
   ```txt
   cupy-cuda11x
-  torch --index-url https://download.pytorch.org/whl/cu118
-  tensorflow[and-cuda]
   git+https://github.com/MyResearchGroup/prize-winning-algos
   ```
 
@@ -68,11 +105,16 @@ The organisers will execute (after installing [nvidia-docker](https://docs.nvidi
 docker run --rm -it --gpus all -p 6006:6006 \
   -v /path/to/data:/mnt/share/petric:ro \
   -v .:/workdir -w /workdir synerbi/sirf:edge-gpu /bin/bash
-# 3. optionally, conda/pip/apt install environment.yml/requirements.txt/apt.txt
-# 4. install metrics & run your submission
+# 3. install metrics & GPU libraries
+conda install monai tensorboard tensorboardx jupytext cudatoolkit=11.8
+pip uninstall torch # monai installs pytorch (CPU), so remove it
+pip install tensorflow[and-cuda]==2.14  # last to support cu118
+pip install torch --index-url https://download.pytorch.org/whl/cu118
 pip install git+https://github.com/TomographicImaging/Hackathon-000-Stochastic-QualityMetrics
+# 4. optionally, conda/pip/apt install environment.yml/requirements.txt/apt.txt
+# 5. run your submission
 python petric.py &
-# 5. optionally, serve logs at <http://localhost:6006>
+# 6. optionally, serve logs at <http://localhost:6006>
 tensorboard --bind_all --port 6006 --logdir ./output
 ```
 

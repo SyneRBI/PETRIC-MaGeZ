@@ -14,6 +14,8 @@ from cil.optimisation.algorithms import Algorithm
 from cil.optimisation.utilities import callbacks
 from sirf.contrib.partitioner import partitioner
 
+from collections.abc import Callable
+
 import numpy as np
 import array_api_compat.cupy as xp
 from array_api_compat import to_device
@@ -22,6 +24,89 @@ from array_api_compat import to_device
 from rdp import RDP
 
 from petric import Dataset
+
+import math
+
+def find_coprimes(n):
+    coprimes = []
+    for i in range(2, n):
+        if math.gcd(n, i) == 1:
+            coprimes.append(i)
+    return coprimes
+
+def neighbor_difference_and_sum(x, padding= "edge", _dev='cpu'):
+    """get differences and sums with nearest neighbors for an n-dimensional array x
+    using padding (by default in edge mode)
+    a x.ndim*(3,) neighborhood around each element is used
+    """
+    x_padded = xp.pad(x, 1, mode=padding)
+    # number of nearest neighbors
+    num_neigh = 3**x.ndim - 1
+    # array for differences and sums with nearest neighbors
+    d = xp.zeros((num_neigh,) + x.shape, dtype=x.dtype, device=_dev)
+    s = xp.zeros_like(d)
+
+    for i, ind in enumerate(xp.ndindex(x.ndim * (3,))):
+        if i != (num_neigh // 2):
+            sl = []
+            for j in ind:
+                if j - 2 < 0:
+                    sl.append(slice(j, j - 2))
+                else:
+                    sl.append(slice(j, None))
+            sl = tuple(sl)
+
+            if i < num_neigh // 2:
+                d[i, ...] = x - x_padded[sl]
+                s[i, ...] = x + x_padded[sl]
+            else:
+                d[i - 1, ...] = x - x_padded[sl]
+                s[i - 1, ...] = x + x_padded[sl]
+    return d, s
+
+def neighbor_product(x, padding = "edge", _dev='cpu'):
+    """get backward and forward neighbor products for each dimension of an array x
+    using padding (by default in edge mode)
+    """
+    x_padded = xp.pad(x, 1, mode=padding)
+    # number of nearest neighbors
+    num_neigh = 3**x.ndim - 1
+
+    # array for differences and sums with nearest neighbors
+    p = xp.zeros((num_neigh,) + x.shape, dtype=x.dtype, device=_dev)
+
+    for i, ind in enumerate(xp.ndindex(x.ndim * (3,))):
+        if i != (num_neigh // 2):
+            sl = []
+            for j in ind:
+                if j - 2 < 0:
+                    sl.append(slice(j, j - 2))
+                else:
+                    sl.append(slice(j, None))
+            sl = tuple(sl)
+
+            if i < num_neigh // 2:
+                p[i, ...] = x * x_padded[sl]
+            else:
+                p[i - 1, ...] = x * x_padded[sl]
+    return p
+
+def get_weights(voxel_sizes, in_shape, _dev='cpu'):
+    ndim = len(voxel_sizes)
+    num_neigh = 3**ndim-1
+    voxel_size_weights = xp.zeros((num_neigh,) + in_shape, dtype=xp.float64, device=_dev)
+
+    for i, ind in enumerate(xp.ndindex(ndim * (3,))):
+        if i != (num_neigh // 2):
+            offset = xp.asarray(ind) - 1
+            vw = voxel_sizes[2] / xp.linalg.norm(offset * voxel_sizes)
+
+            if i < num_neigh // 2:
+                voxel_size_weights[i, ...] = vw
+            else:
+                voxel_size_weights[i - 1, ...] = vw
+
+    return voxel_size_weights
 
 
 def get_divisors(n):
@@ -32,6 +117,14 @@ def get_divisors(n):
             divisors.add(i)
             divisors.add(n // i)
     return sorted(divisors)
+
+
+def step_size_rule_1(update: int) -> float:
+    if update >= 10 and update <= 13:
+        new_step_size = 1.0
+    elif update > 13:
+        new_step_size = 0.5
+    return new_step_size
 
 
 class MaxIteration(callbacks.Callback):
@@ -62,12 +155,11 @@ class Submission(Algorithm):
     def __init__(
         self,
         data: Dataset,
-        step_size_factor: float = 1.0,  # multiplicative factor to increase / decrease default step sizes
-        approx_num_subsets: int = 25,  # approximate number of subsets, closest divisor of num_views will be used
+        approx_num_subsets: float = 25,  # approximate number of subsets, closest divisor of num_views will be used
         update_objective_interval: int | None = None,
-        complete_gradient_epochs: None | list[int] = None,
-        precond_update_epochs: None | list[int] = None,
-        precond_hessian_factor: float = 1.0,
+        step_size_update_function: Callable[[int], float] = step_size_rule_1,
+        initial_stepsize: float = 3,
+        precond_filter_fwhm_mm: float = 5.0,
         verbose: bool = False,
         seed: int = 1,
         **kwargs,
@@ -84,12 +176,16 @@ class Submission(Algorithm):
         self.subset = 0
 
         # --- setup the number of subsets
-
         num_views = data.mult_factors.dimensions()[2]
         num_views_divisors = np.array(get_divisors(num_views))
         self._num_subsets = num_views_divisors[
             np.argmin(np.abs(num_views_divisors - approx_num_subsets))
         ]
+        # self.coprimes = find_coprimes(self._num_subsets)
+        # if not self.coprimes:
+        #     self.sorted_coprimes = [0] * 100
+        # else:
+        #     self.sorted_coprimes = sorted(self.coprimes, key=lambda x: min(abs(x - int(0.3*self._num_subsets)), abs(x - int(0.7*self._num_subsets)))) 
 
         if self._num_subsets not in num_views_divisors:
             raise ValueError(
@@ -101,14 +197,20 @@ class Submission(Algorithm):
 
         # --- setup the initial image as a slightly smoothed version of the OSEM image
         self.x = data.OSEM_image.clone()
+        self.deltamax = 1e-6*self.x.max()
+        self.delta = self.x.get_uniform_copy(self.deltamax)
+        self.tmp_im = self.x.get_uniform_copy(1)
+        self.tmp_grad = self.tmp_im.clone()
+        self.old_x = self.x.clone()
+        self.old_g = self.tmp_im.clone()
 
-        self._update = 0
-        self._step_size_factor = step_size_factor
-        self._step_size = self._step_size_factor * 2.0
+
+        self._step_size_update_function = step_size_update_function
+        self._step_size = initial_stepsize 
+        # self._step_size_update_function(self._update)
         self._subset_number_list = []
-        self._precond_hessian_factor = precond_hessian_factor
 
-        self._data_sub, self._acq_models, self._subset_likelihood_funcs = (
+        _, _, self._obj_funs = (
             partitioner.data_partition(
                 data.acquired_data,
                 data.additive_term,
@@ -119,66 +221,58 @@ class Submission(Algorithm):
             )
         )
 
-        penalization_factor = data.prior.get_penalisation_factor()
+        #TODO need to define number of subsets
+        penalisation_factor = data.prior.get_penalisation_factor()
+
+        # WARNING: modifies prior strength with 1/num_subsets (as currently needed for BSREM implementations)
+        data.prior.set_penalisation_factor(penalisation_factor / self._num_subsets)
         data.prior.set_up(data.OSEM_image)
-        self._prior = data.prior
+        for f in self._obj_funs:  # add prior evenly to every objective function
+            f.set_prior(data.prior)
+
+        # self._subset_prior_fct = data.prior
 
         self._adjoint_ones = self.x.get_uniform_copy(0)
-
         for i in range(self._num_subsets):
-            if self._verbose:
-                print(f"Calculating subset {i} sensitivity")
-            self._adjoint_ones += self._subset_likelihood_funcs[
-                i
-            ].get_subset_sensitivity(0)
+            self._adjoint_ones += self._obj_funs[i].get_subset_sensitivity(0)
+        self.update_filter = STIR.TruncateToCylinderProcessor()
+        self.update_filter.apply(self.tmp_im)
+        self.tmp_im -= self.x.get_uniform_copy(1)
+        # self.tmp_im.sapyb(1, self.x.get_uniform_copy(1), -1.0, out=self.tmp_im)
+        self._adjoint_ones.sapyb(1.0, self.tmp_im, -1e-6, out=self._adjoint_ones)
 
-        self._fov_mask = self.x.get_uniform_copy(0)
-        # tmp = 1.0 * (self._adjoint_ones.as_array() > 0)
-        tmp = 1.0 * (data.OSEM_image.as_array() > 0)
-        self._fov_mask.fill(tmp)
+        # self._fov_mask = data.FOV_mask
 
-        # add a small number in the adjoint ones outside the FOV to avoid NaN in division
-        self._adjoint_ones += 1e-6 * (-self._fov_mask + 1.0)
 
         # initialize list / ImageData for all subset gradients and sum of gradients
         self._summed_subset_gradients = self.x.get_uniform_copy(0)
         self._subset_gradients = []
 
-        if complete_gradient_epochs is None:
-            self._complete_gradient_epochs: list[int] = [x for x in range(0, 1000, 2)]
-        else:
-            self._complete_gradient_epochs = complete_gradient_epochs
-
-        if precond_update_epochs is None:
-            self._precond_update_epochs: list[int] = [1, 2, 3]
-        else:
-            self._precond_update_epochs = precond_update_epochs
-
-        # setup python re-implementation of the RDP
-        # only used to get the diagonal of the RDP Hessian for preconditioning!
-        # (diag of RDP Hessian is not available in SIRF yet)
+        # change these to correspond to final things
+        self._complete_gradient_epochs: list[int] = [x for x in range(0, 1000, 2)]
+        self._precond_update_epochs: list[int] = [1, 2, 4, 6]
+        self._bb_update_epochs: list[int] = [2, 4, 6]
         if "cupy" in xp.__name__:
             self._dev = xp.cuda.Device(0)
         else:
             self._dev = "cpu"
 
-        self._python_prior = RDP(
-            data.OSEM_image.shape,
-            xp,
-            self._dev,
-            xp.asarray(data.OSEM_image.spacing, device=self._dev),
-            eps=data.prior.get_epsilon(),
-            gamma=data.prior.get_gamma(),
-        )
-        self._python_prior.kappa = xp.asarray(data.kappa.as_array(), device=self._dev)
-        self._python_prior.scale = penalization_factor
+        # what is the difference between voxel sizes and spacing?
+        self.kappa = data.kappa.as_array()
+        self.epsilon = data.prior.get_epsilon()
+        self.penalty_strength = penalisation_factor
+        self.gamma = data.prior.get_gamma()
+        self.weights = get_weights(xp.asarray(data.OSEM_image.voxel_sizes(), device=self._dev), self.x.shape, _dev=self._dev)
+        self.weights *=neighbor_product(xp.asarray(self.kappa, device=self._dev, dtype = xp.float64), _dev=self._dev)
+
 
         self._precond_filter = STIR.SeparableGaussianImageFilter()
-        self._precond_filter.set_fwhms([5.0, 5.0, 5.0])
+        self._precond_filter.set_fwhms(
+            [precond_filter_fwhm_mm, precond_filter_fwhm_mm, precond_filter_fwhm_mm]
+        )
         self._precond_filter.set_up(data.OSEM_image)
 
         # calculate the initial preconditioner based on the initial image
-        self._prior_diag_hess = None
         self._precond = self.calc_precond(self.x)
 
         if update_objective_interval is None:
@@ -187,163 +281,83 @@ class Submission(Algorithm):
         super().__init__(update_objective_interval=update_objective_interval, **kwargs)
         self.configured = True  # required by Algorithm
 
-        # prox related parameters
-        self._num_prox_iter = 5
-        self._prior_prox_step = 1.0
-
     @property
     def epoch(self):
-        return self._update // self._num_subsets
-
-    def update_step_size(self):
-        if self.epoch <= 4:
-            self._step_size = self._step_size_factor * 2.0
-        elif self.epoch > 4 and self.epoch <= 8:
-            self._step_size = self._step_size_factor * 1.5
-        elif self.epoch > 8 and self.epoch <= 12:
-            self._step_size = self._step_size_factor * 1.0
-        else:
-            self._step_size = self._step_size_factor * 0.5
-
-        if self._verbose:
-            print(self._update, self.epoch, self._step_size)
+        return self.iteration // self._num_subsets
 
     def calc_precond(
         self,
         x: STIR.ImageData,
-        delta_rel: float = 1e-6,
     ) -> STIR.ImageData:
-
-        # generate a smoothed version of the input image
-        # to avoid high values, especially in first and last slices
         x_sm = self._precond_filter.process(x)
-        delta = delta_rel * x_sm.max()
 
-        self._prior_diag_hess = x_sm.get_uniform_copy(0)
-        self._prior_diag_hess.fill(
-            to_device(
-                self._python_prior.diag_hessian(
-                    xp.asarray(x_sm.as_array(), device=self._dev)
-                ),
-                "cpu",
-            )
-        )
+        x_xp = xp.asarray(x_sm.as_array(), device=self._dev, dtype=xp.float64)        
+        d, s = neighbor_difference_and_sum(x_xp, padding='edge')
+        phi = s + self.gamma * xp.abs(d) + self.epsilon
+        tmp = ((s - d + self.epsilon) ** 2) / (phi**3) 
+        tmp *= self.weights
+        tmp = 3*self.penalty_strength*tmp.sum(axis=0)
+        tmp *= x_xp
+        self.tmp_im.fill(to_device(tmp, 'cpu'))
+        self.tmp_im += self._adjoint_ones
+        # x_sm += self.delta
+        x_sm.divide(self.tmp_im, out=self.tmp_im)
+        # self.tmp_im.multiply(self._fov_mask)
+        self.update_filter.apply(self.tmp_im)
+        return self.tmp_im.clone()
 
-        precond = (
-            self._fov_mask
-            * (x_sm + delta)
-            / (
-                self._adjoint_ones
-                + (self._precond_hessian_factor * 2) * self._prior_diag_hess * x_sm
-            )
-        )
-
-        return precond
 
     def update_all_subset_gradients(self) -> None:
-
-        self._summed_subset_gradients = self.x.get_uniform_copy(0)
-        self._subset_gradients = []
-
-        for f in self._subset_likelihood_funcs:
-            self._subset_gradients.append(f.gradient(self.x))
-            self._summed_subset_gradients += self._subset_gradients[-1]
+        self._subset_gradients = [lkhd_func.gradient(self.x) for lkhd_func in self._obj_funs]
+        self._summed_subset_gradients.fill(np.sum(self._subset_gradients))
 
     def update(self):
 
         update_all_subset_gradients = (
-            self._update % self._num_subsets == 0
+            self.iteration % self._num_subsets == 0
         ) and self.epoch in self._complete_gradient_epochs
 
         update_precond = (
-            self._update % self._num_subsets == 0
+            self.iteration % self._num_subsets == 0
         ) and self.epoch in self._precond_update_epochs
 
-        if self._update % self._num_subsets == 0:
-            self.update_step_size()
+        if self.iteration <= 10:
+            self._step_size = 3.
+        elif (self.iteration >10) and (self.epoch <=2):
+            self._step_size = 2.2
+        elif self.epoch >=10:
+            self._step_size = 1.0
 
         if update_precond:
-            if self._verbose:
-                print(f"  {self._update}, updating preconditioner")
-            self._precond = self.calc_precond(self.x)
+            self._precond.fill(self.calc_precond(self.x))
 
         if update_all_subset_gradients:
-            if self._verbose:
-                print(
-                    f"  {self._update}, {self.subset}, recalculating all subset gradients"
-                )
             self.update_all_subset_gradients()
-            approximated_gradient = self._summed_subset_gradients
+            self.tmp_grad.fill(self._summed_subset_gradients)
+            if self.iteration == 0:
+                self.old_x.fill(self.x)
+                self.old_g.fill(self.tmp_grad)
+            
+            elif self.epoch in self._bb_update_epochs:
+                self.old_x -= self.x
+                self.old_g -= self.tmp_grad
+                self._precond.multiply(self.old_g, out=self.tmp_im)
+                shbb_step = np.abs(self.old_x.dot(self.old_g)/self.old_g.dot(self.tmp_im))
+                self.old_x.fill(self.x)
+                self.old_g.fill(self.tmp_grad)
+                max_ss = 2.5 if self.epoch <= 2 else self._step_size
+                self._step_size = np.clip(shbb_step, 0.01, max_ss)
         else:
-            if self._subset_number_list == []:
+            if not self._subset_number_list:
                 self.create_subset_number_list()
 
             self.subset = self._subset_number_list.pop()
-            if self._verbose:
-                print(f" {self._update}, {self.subset}, subset gradient update")
-
-            # remember that the objective has to be maximized
-            # posterior = log likelihood - log prior ("minus" instead of "plus"!)
-            approximated_gradient = (
-                self._num_subsets
-                * (
-                    self._subset_likelihood_funcs[self.subset].gradient(self.x)
-                    - self._subset_gradients[self.subset]
-                )
-                + self._summed_subset_gradients
-            )
-
-        ### Objective has to be maximized -> "+" for gradient ascent
-        # "data fidelity" step
-        tmp = self.x + self._step_size * self._precond * approximated_gradient
-
-        # call the approximation of the prox of RDP + non-negative constraint
-        # XXX
-
-        tau = self._step_size
-        T = self._precond + 1e-6 * (-self._fov_mask + 1)
-
-        prior_prox_pc = (T.power(-1) + tau * self._prior_diag_hess).power(-1)
-
-        self.x = self.approximate_prior_prox(
-            tmp, tau=tau, T=T, prox_precond=prior_prox_pc
-        )
-
-        self._update += 1
-
-    def approximate_prior_prox(
-        self, z: STIR.ImageData, tau, T: STIR.ImageData, prox_precond: STIR.ImageData
-    ):
-
-        u = z.maximum(0)
-
-        for k in range(self._num_prox_iter):
-            # compute gradient step
-            grad = (u - z) / T + tau * self._prior.gradient(u)
-            u_new = u - self._prior_prox_step * prox_precond * grad
-            u_new.maximum(0, out=u_new)
-
-            ## update step size
-
-            # if self._adaptive_step_size:
-            #    diff_new = xp.linalg.norm(u_new - u)
-
-            #    if k == 0:
-            #        u = u_new
-            #        diff = diff_new
-            #    else:
-            #        if diff_new <= diff:
-            #            self._step *= self._up
-            #            u = u_new
-            #            diff = diff_new
-            #        else:
-            #            self._step /= self._down
-            # else:
-            #    u = u_new
-
-            u = u_new
-
-        return u
+            self._obj_funs[self.subset].gradient(self.x, out = self.tmp_grad)
+            self.tmp_grad -= self._subset_gradients[self.subset]
+            self.tmp_grad.sapyb(self._num_subsets, self._summed_subset_gradients, 1, out=self.tmp_grad)
+        self.tmp_grad.multiply(self._precond, out=self.tmp_grad)
+        self.x.sapyb(1, self.tmp_grad, self._step_size, out=self.x)
+        self.x.maximum(0, out=self.x)
 
     def update_objective(self) -> None:
         """
@@ -359,4 +373,4 @@ class Submission(Algorithm):
         self._subset_number_list = tmp.tolist()
 
 
-submission_callbacks = [MaxIteration(300)]
+submission_callbacks = [MaxIteration(200)]
