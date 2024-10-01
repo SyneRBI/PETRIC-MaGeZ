@@ -38,7 +38,9 @@ with m = 1 but using the short stepsize (see [https://en.wikipedia.org/wiki/Barz
 
 ### ALG3 (ALG3 branch, ALG3 tag)
 
-Almost the same as ALG2, with two differences. First, we use a slighlty smaller number of subsets, and second, we use a quasi
+Using the same setup as in ALG2 but with two minor differences.
+First, we use a slightly smaller number of subsets. 
+Second, we use a non-stochastic selection of subset indices by considering the cyclic group corresponding to the given number of subsets, finding all of its generators (i.e. the set of all coprimes of the number of subsets that are smaller), and then creating indices by consider specific generators at a time.
 ---
 ---
 ---
