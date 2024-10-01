@@ -30,11 +30,17 @@ in work of Nuyts et al.
 The scalar step size $\alpha$ is set to 3 in the first epochs and then decreased
 to 1 and finally to 0.5 in late epochs.
 
-### ALG2 (AGL2 branch, ALG2 tag)
+### ALG2 (ALG2 branch, ALG2 tag)
 
 Similar to ALG1 but:
 The stepsize is set to 2.2 in the first epoch, and is then computed using the Barzilai-Borwein rule as described in Algorithm 2 in [https://arxiv.org/abs/1605.04131](https://arxiv.org/abs/1605.04131), 
 with m = 1 but using the short stepsize (see [https://en.wikipedia.org/wiki/Barzilai-Borwein_method]([https://en.wikipedia.org/wiki/Barzilai-Borwein_method])) adapted to preconditioned gradient ascent methods
+
+### ALG3 (ALG3 branch, ALG3 tag)
+
+Using the same setup as in ALG2 but with two minor differences.
+First, we use a slightly smaller number of subsets.
+Second, we use a non-stochastic selection of subset indices by considering the cyclic group corresponding to the given number of subsets, finding all of its generators (i.e. the set of all coprimes of the number of subsets that are smaller), and then creating indices by consider specific generators at a time.
 
 ---
 ---
