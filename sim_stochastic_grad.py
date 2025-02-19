@@ -41,7 +41,7 @@ elif "cupy" in xp.__name__:
 seed = 1
 
 # true counts, reasonable range
-true_counts = 5e7
+true_counts = 1e5
 # regularization weight, reasonable range: 5e-5 * (true_counts / 1e6) is medium regularization
 beta = 5e-5 * (true_counts / 1e6)
 # RDP gamma parameter
@@ -54,7 +54,7 @@ num_epochs = 20
 num_subsets = 27
 
 # max number of updates for reference L-BFGS-B solution
-num_iter_bfgs_ref = 3000
+num_iter_bfgs_ref = 300
 
 # %%
 # number of rings of simulated PET scanner, should be odd in this example
@@ -290,8 +290,20 @@ cost_function = SubsetNegPoissonLogLWithPrior(
 
 
 # %%
-# run L-BFGS-B without subsets as reference
-x0_bfgs = to_device(x_init.ravel(), "cpu")
+# run (pre-conditioned) L-BFGS-B without subsets as reference
+
+# the preconditioner is taken from
+# Tsai et al: "Benefits of Using a Spatially-Variant Penalty Strength With Anatomical Priors in PET Reconstruction"
+# doi: 10.1109/TMI.2019.2913889
+
+# calculate data term preconditioner
+pp = 1 / xp.sqrt(kappa_img**2 + 1e-4)
+pp_np = xp.asnumpy(pp).ravel()
+
+precond_cf = lambda z: cost_function(z * pp_np)
+precond_grad = lambda z: cost_function.gradient(z * pp_np) * pp_np
+
+z0_bfgs = to_device((x_init / pp).ravel(), "cpu")
 
 bounds = x0.size * [(0, None)]
 
@@ -309,9 +321,9 @@ if ref_file.exists():
 else:
     print("running L-BFGS-B reference")
     res = fmin_l_bfgs_b(
-        cost_function,
-        x0_bfgs,
-        cost_function.gradient,
+        precond_cf,
+        z0_bfgs,
+        precond_grad,
         disp=1,
         maxiter=num_iter_bfgs_ref,
         bounds=bounds,
@@ -320,13 +332,14 @@ else:
         pgtol=1e-16,
     )
 
-    x_ref = xp.asarray(res[0].reshape(img_shape), device=dev)
+    x_ref = pp * xp.asarray(res[0].reshape(img_shape), device=dev)
     xp.save(ref_file, x_ref)
 
 cost_ref = cost_function(x_ref)
 
 x_osem_scale = float(xp.mean(x_init))
 
+print(cost_ref)
 
 # %%
 cost_osem = cost_function(x_osem)
