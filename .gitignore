@@ -20,3 +20,4 @@ events.*
 # user defined ignores
 output_magez*/
 sim_results/
+sim_results_orig_phantom/*

@@ -40,8 +40,8 @@ elif "cupy" in xp.__name__:
 
 seed = 1
 
-# true counts, reasonable range: 1e6, 1e7 (high counts), 1e5 (low counts)
-true_counts = 1e6
+# true counts, reasonable range
+true_counts = 5e7
 # regularization weight, reasonable range: 5e-5 * (true_counts / 1e6) is medium regularization
 beta = 5e-5 * (true_counts / 1e6)
 # RDP gamma parameter
@@ -54,11 +54,11 @@ num_epochs = 20
 num_subsets = 27
 
 # max number of updates for reference L-BFGS-B solution
-num_iter_bfgs_ref = 400
+num_iter_bfgs_ref = 3000
 
 # %%
 # number of rings of simulated PET scanner, should be odd in this example
-num_rings = 11
+num_rings = 17
 # resolution of the simulated PET scanner in mm
 fwhm_data_mm = 4.5
 # simulated TOF or non-TOF system
@@ -68,9 +68,9 @@ contam_fraction = 0.5
 # show the geometry of the scanner / image volume
 show_geometry = False
 # verbose output
-verbose = False
+verbose = True
 # track cost function values after every update (slow)
-track_cost = False
+track_cost = True
 
 # number of epochs / subsets for intial OSEM
 num_epochs_osem = 1
@@ -108,12 +108,12 @@ scanner = parallelproj.RegularPolygonPETScannerGeometry(
 # %%
 # setup the LOR descriptor that defines the sinogram
 
-img_shape = (100, 100, 2 * num_rings - 1)
-voxel_size = (2.0, 2.0, 2.0)
+img_shape = (161, 161, 2 * num_rings - 1)
+voxel_size = (2.5, 2.5, 2.5)
 
 lor_desc = parallelproj.RegularPolygonPETLORDescriptor(
     scanner,
-    radial_trim=140,
+    radial_trim=100,
     sinogram_order=parallelproj.SinogramSpatialAxisOrder.RVP,
 )
 
@@ -146,6 +146,9 @@ x_true[:25, :, :] = 0
 x_true[-25:, :, :] = 0
 x_true[:, :10, :] = 0
 x_true[:, -10:, :] = 0
+
+x_true[:, :, :2] = 0
+x_true[:, :, -2:] = 0
 
 # %%
 # Attenuation image and sinogram setup
@@ -191,9 +194,8 @@ if show_geometry:
     fig = plt.figure(figsize=(8, 8), tight_layout=True)
     ax = fig.add_subplot(111, projection="3d")
     proj.show_geometry(ax)
-    lor_desc.show_views(ax, xp.asarray([lor_desc.num_views // 4]), xp.asarray([1]))
+    lor_desc.show_views(ax, xp.asarray([0, lor_desc.num_views // 4]), xp.asarray([1]))
     fig.show()
-
 
 # %%
 # Simulation of projection data
@@ -302,17 +304,20 @@ ref_file = (
 )
 
 if ref_file.exists():
+    print("loading L-BFGS-B reference")
     x_ref = xp.asarray(np.load(ref_file), device=dev)
 else:
+    print("running L-BFGS-B reference")
     res = fmin_l_bfgs_b(
         cost_function,
         x0_bfgs,
         cost_function.gradient,
-        disp=True,
+        disp=1,
         maxiter=num_iter_bfgs_ref,
         bounds=bounds,
         m=10,
-        factr=10.0,
+        factr=1.0,
+        pgtol=1e-16,
     )
 
     x_ref = xp.asarray(res[0].reshape(img_shape), device=dev)
@@ -343,18 +348,24 @@ subset_neglogL = SubsetNegPoissonLogLWithPrior(
     data, pet_subset_lin_op_seq, contamination, subset_slices, prior=None
 )
 
+print("running SVRG")
 svrg_alg = SVRG(
     subset_neglogL, prior, x_init, verbose=False, precond_version=precond_version
 )
 nrmse_svrg = svrg_alg.run(num_epochs * num_subsets, callback=nmrse_callback)
 
-# %%
-prior_prox = ProxRDP(prior, niter=4, init_step=1.0, adaptive_step_size=False)
+if track_cost:
+    print(f"cost ref   : {cost_ref:.8E}")
+    print(f"cost svrg .: {cost_function(svrg_alg.x):.8E}")
 
-proxsvrg_alg = ProxSVRG(
-    subset_neglogL, prior_prox, x_init, verbose=False, precond_version=precond_version
-)
-nrmse_proxsvrg = proxsvrg_alg.run(num_epochs * num_subsets, callback=nmrse_callback)
+## %%
+# prior_prox = ProxRDP(prior, niter=4, init_step=1.0, adaptive_step_size=False)
+#
+# print("running prox SVRG")
+# proxsvrg_alg = ProxSVRG(
+#    subset_neglogL, prior_prox, x_init, verbose=False, precond_version=precond_version
+# )
+# nrmse_proxsvrg = proxsvrg_alg.run(num_epochs * num_subsets, callback=nmrse_callback)
 
 # %%
 fig, ax = plt.subplots(2, 4, figsize=(12, 6), tight_layout=True)
@@ -374,20 +385,20 @@ ax[1, 1].imshow(to_device(svrg_alg.x[..., sl1], "cpu"), **ims)
 ax[0, 1].set_title(f"SVRG slice {sl0}")
 ax[1, 1].set_title(f"SVRG slice {sl1}")
 
-ax[0, 2].imshow(to_device(proxsvrg_alg.x[..., sl0], "cpu"), **ims)
-ax[1, 2].imshow(to_device(proxsvrg_alg.x[..., sl1], "cpu"), **ims)
-ax[0, 2].set_title(f"ProxSVRG slice {sl0}")
-ax[1, 2].set_title(f"ProxSVRG slice {sl1}")
+# ax[0, 2].imshow(to_device(proxsvrg_alg.x[..., sl0], "cpu"), **ims)
+# ax[1, 2].imshow(to_device(proxsvrg_alg.x[..., sl1], "cpu"), **ims)
+# ax[0, 2].set_title(f"ProxSVRG slice {sl0}")
+# ax[1, 2].set_title(f"ProxSVRG slice {sl1}")
 
 ax[0, -1].semilogy(
     np.arange(num_subsets * num_epochs) / num_subsets, nrmse_svrg, label="SVRG"
 )
-ax[0, -1].semilogy(
-    np.arange(num_subsets * num_epochs) / num_subsets,
-    nrmse_proxsvrg,
-    "--",
-    label="ProxSVRG",
-)
+# ax[0, -1].semilogy(
+#    np.arange(num_subsets * num_epochs) / num_subsets,
+#    nrmse_proxsvrg,
+#    "--",
+#    label="ProxSVRG",
+# )
 ax[0, -1].axhline(0.01, color="black", ls="--")
 ax[0, -1].set_xlabel("epoch")
 ax[0, -1].set_title("whole image NRMSE")
