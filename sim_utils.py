@@ -439,8 +439,7 @@ class SVRG:
         self._x = self._x - self._step_size * self._precond * approximated_gradient
 
         # enforce non-negative constraint
-        self._xp.clip(self._x, 0, None, out=self._x)
-
+        self._xp.clip(self._x, 0.0, None, out=self._x)
         self._update += 1
 
     def run(
@@ -489,14 +488,14 @@ class ProxRDP:
 
         xp = get_namespace(z)
 
-        u = xp.clip(z, 0, None)
+        u = xp.clip(z, 0.0, None)
 
         for k in range(self._niter):
             # compute gradient step
             grad = (u - z) / T + tau * self._prior.gradient(u)
             tmp = u - self._step * precond * grad
 
-            u_new = xp.clip(tmp, 0, None)
+            u_new = xp.clip(tmp, 0.0, None)
 
             # update step size
 
