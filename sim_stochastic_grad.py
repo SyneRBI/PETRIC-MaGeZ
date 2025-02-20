@@ -16,6 +16,8 @@ from array_api_compat import to_device
 from scipy.optimize import fmin_l_bfgs_b
 from pathlib import Path
 
+import argparse
+
 from sim_utils import (
     SubsetNegPoissonLogLWithPrior,
     split_fwd_model,
@@ -36,14 +38,23 @@ elif "cupy" in xp.__name__:
     dev = xp.cuda.Device(0)
 
 # %%
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--seed", type=int, default=1)
+parser.add_argument("--true_counts", type=int, default=int(1e7))
+parser.add_argument("--beta_rel", type=float, default=5e-5)
+
+args = parser.parse_args()
+
+# %%
 # input parameters
 
-seed = 1
+seed = int(args.seed)
 
 # true counts, reasonable range
-true_counts = 1e5
+true_counts = args.true_counts
 # regularization weight, reasonable range: 5e-5 * (true_counts / 1e6) is medium regularization
-beta = 5e-5 * (true_counts / 1e6)
+beta = args.beta_rel * (true_counts / 1e6)
 # RDP gamma parameter
 gamma_rdp = 2.0
 # precond version: 1: x / A^T 1, 2: x / (A^T + 2*diag_hess_rdp(x)*x)
@@ -54,7 +65,7 @@ num_epochs = 20
 num_subsets = 27
 
 # max number of updates for reference L-BFGS-B solution
-num_iter_bfgs_ref = 300
+num_iter_bfgs_ref = 500
 
 # %%
 # number of rings of simulated PET scanner, should be odd in this example
