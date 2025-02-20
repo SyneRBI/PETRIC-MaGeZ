@@ -346,24 +346,29 @@ else:
     x_ref = pp * xp.asarray(res[0].reshape(img_shape), device=dev)
     xp.save(ref_file, x_ref)
 
+# %%
+cost_osem = cost_function(x_osem)
 cost_ref = cost_function(x_ref)
-
 x_osem_scale = float(xp.mean(x_init))
 
 print(cost_ref)
 
-# %%
-cost_osem = cost_function(x_osem)
-nrmse_osem = xp.sqrt(xp.mean((x_ref - x_osem) ** 2)) / scale_fac
-nrmse_init = xp.sqrt(xp.mean((x_ref - x_init) ** 2)) / scale_fac
-
 
 # %%
+# define NRMSE callback
+# NRMSE = global MSE divided by the background signal (scale_fac)
+
+
 def nrmse(vec_x, vec_y):
     return float(xp.sqrt(xp.mean((vec_x - vec_y) ** 2))) / scale_fac
 
 
 nmrse_callback = lambda x: nrmse(x, x_ref)
+
+# %%
+nrmse_osem = nmrse_callback(x_osem)
+nrmse_init = nmrse_callback(x_init)
+
 
 # %%
 # run SVRG
@@ -377,10 +382,13 @@ svrg_alg = SVRG(
     subset_neglogL, prior, x_init, verbose=False, precond_version=precond_version
 )
 nrmse_svrg = svrg_alg.run(num_epochs * num_subsets, callback=nmrse_callback)
+cost_svrg = cost_function(svrg_alg.x)
 
-if track_cost:
-    print(f"cost ref   : {cost_ref:.8E}")
-    print(f"cost svrg .: {cost_function(svrg_alg.x):.8E}")
+print(f"cost ref   : {cost_ref:.8E}")
+print(f"cost svrg .: {cost_svrg:.8E}")
+
+if cost_svrg < cost_ref:
+    print("WARNING: SVRG cost is lower than reference cost. Find better reference.")
 
 ## %%
 # prior_prox = ProxRDP(prior, niter=4, init_step=1.0, adaptive_step_size=False)
@@ -394,38 +402,38 @@ if track_cost:
 # %%
 fig, ax = plt.subplots(2, 4, figsize=(12, 6), tight_layout=True)
 
-sl0 = 0
+sl0 = x_true.shape[1] // 2
 sl1 = x_true.shape[2] // 2
 
 ims = dict(cmap="Greys", vmin=0, vmax=1.1 * float(xp.max(x_ref)))
+ims_diff = dict(cmap="seismic", vmin=-0.1 * scale_fac, vmax=0.1 * scale_fac)
 
-ax[0, 0].imshow(to_device(x_ref[..., sl0], "cpu"), **ims)
-ax[1, 0].imshow(to_device(x_ref[..., sl1], "cpu"), **ims)
-ax[0, 0].set_title(f"ref slice {sl0}")
-ax[1, 0].set_title(f"ref slice {sl1}")
+ax[0, 0].imshow(to_device(x_ref[..., sl1], "cpu"), **ims)
+im0 = ax[1, 0].imshow(to_device(x_ref[:, sl0, :].T, "cpu"), **ims)
+ax[0, 0].set_title(f"reference (L-BFGS-B)", fontsize="medium")
 
-ax[0, 1].imshow(to_device(svrg_alg.x[..., sl0], "cpu"), **ims)
-ax[1, 1].imshow(to_device(svrg_alg.x[..., sl1], "cpu"), **ims)
-ax[0, 1].set_title(f"SVRG slice {sl0}")
-ax[1, 1].set_title(f"SVRG slice {sl1}")
+ax[0, 1].imshow(to_device(svrg_alg.x[..., sl1], "cpu"), **ims)
+im1 = ax[1, 1].imshow(to_device(svrg_alg.x[:, sl0, :].T, "cpu"), **ims)
+ax[0, 1].set_title(
+    f"SVRG {num_epochs} epochs, {num_subsets} subsets", fontsize="medium"
+)
 
-# ax[0, 2].imshow(to_device(proxsvrg_alg.x[..., sl0], "cpu"), **ims)
-# ax[1, 2].imshow(to_device(proxsvrg_alg.x[..., sl1], "cpu"), **ims)
-# ax[0, 2].set_title(f"ProxSVRG slice {sl0}")
-# ax[1, 2].set_title(f"ProxSVRG slice {sl1}")
+ax[0, 2].imshow(to_device(svrg_alg.x[..., sl1] - x_ref[..., sl1], "cpu"), **ims_diff)
+im2 = ax[1, 2].imshow(
+    to_device(svrg_alg.x[:, sl0, :].T - x_ref[:, sl0, :].T, "cpu"), **ims_diff
+)
+ax[0, 2].set_title(f"SVRG - ref.", fontsize="medium")
+
+fig.colorbar(im0, ax=ax[1, 0], location="bottom", fraction=0.05)
+fig.colorbar(im1, ax=ax[1, 1], location="bottom", fraction=0.05)
+fig.colorbar(im2, ax=ax[1, 2], location="bottom", fraction=0.05)
 
 ax[0, -1].semilogy(
     np.arange(num_subsets * num_epochs) / num_subsets, nrmse_svrg, label="SVRG"
 )
-# ax[0, -1].semilogy(
-#    np.arange(num_subsets * num_epochs) / num_subsets,
-#    nrmse_proxsvrg,
-#    "--",
-#    label="ProxSVRG",
-# )
 ax[0, -1].axhline(0.01, color="black", ls="--")
 ax[0, -1].set_xlabel("epoch")
-ax[0, -1].set_title("whole image NRMSE")
+ax[0, -1].set_title("whole image NRMSE", fontsize="medium")
 ax[0, -1].grid(ls=":")
 ax[0, -1].legend()
 
