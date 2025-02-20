@@ -25,6 +25,7 @@ from sim_utils import (
     SVRG,
     ProxSVRG,
     ProxRDP,
+    validate_stepsize_lambda_str,
 )
 
 from rdp import RDP
@@ -43,6 +44,12 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--seed", type=int, default=1)
 parser.add_argument("--true_counts", type=int, default=int(1e7))
 parser.add_argument("--beta_rel", type=float, default=5e-5)
+parser.add_argument(
+    "--step_size_func",
+    type=validate_stepsize_lambda_str,
+    help="Lambda function mapping update [int] to stepsize [float] (e.g., 'lambda x: float(x**2)')",
+    default="lambda x: 1.0",
+)
 
 args = parser.parse_args()
 
@@ -86,6 +93,9 @@ track_cost = True
 # number of epochs / subsets for intial OSEM
 num_epochs_osem = 1
 num_subsets_osem = 27
+
+# step size update function
+step_size_func = args.step_size_func
 
 
 # %%
@@ -379,7 +389,12 @@ subset_neglogL = SubsetNegPoissonLogLWithPrior(
 
 print("running SVRG")
 svrg_alg = SVRG(
-    subset_neglogL, prior, x_init, verbose=False, precond_version=precond_version
+    subset_neglogL,
+    prior,
+    x_init,
+    verbose=False,
+    precond_version=precond_version,
+    step_size_func=step_size_func,
 )
 nrmse_svrg = svrg_alg.run(num_epochs * num_subsets, callback=nmrse_callback)
 cost_svrg = cost_function(svrg_alg.x)
@@ -428,15 +443,21 @@ fig.colorbar(im0, ax=ax[1, 0], location="bottom", fraction=0.05)
 fig.colorbar(im1, ax=ax[1, 1], location="bottom", fraction=0.05)
 fig.colorbar(im2, ax=ax[1, 2], location="bottom", fraction=0.05)
 
-ax[0, -1].semilogy(
-    np.arange(num_subsets * num_epochs) / num_subsets, nrmse_svrg, label="SVRG"
-)
+
+update_arr = np.arange(num_subsets * num_epochs)
+
+ax[0, -1].semilogy(update_arr / num_subsets, nrmse_svrg, label="SVRG")
 ax[0, -1].axhline(0.01, color="black", ls="--")
-ax[0, -1].set_xlabel("epoch")
 ax[0, -1].set_title("whole image NRMSE", fontsize="medium")
+ax[0, -1].set_xlabel("epoch")
 ax[0, -1].grid(ls=":")
 ax[0, -1].legend()
 
-ax[-1, -1].set_axis_off()
+ax[1, -1].plot(
+    update_arr / num_subsets, [svrg_alg.step_size_func(x) for x in update_arr]
+)
+ax[1, -1].set_title("step size", fontsize="medium")
+ax[1, -1].set_xlabel("epoch")
+ax[1, -1].grid(ls=":")
 
 fig.show()

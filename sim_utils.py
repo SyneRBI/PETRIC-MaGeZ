@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import abc
+import argparse
 import parallelproj
 import array_api_compat.numpy as np
 from array_api_compat import get_namespace, device
@@ -278,6 +279,7 @@ class SVRG:
         subset_neglogL: SmoothSubsetFunction,
         prior: SmoothFunctionWithDiagonalHessian,
         x_init: Array,
+        step_size_func: Callable[[int], float] = lambda z: 1.0,
         complete_gradient_epochs: None | list[int] = None,
         precond_update_epochs: None | list[int] = None,
         verbose: bool = False,
@@ -310,6 +312,8 @@ class SVRG:
                 )
             )
 
+        self._step_size_func = step_size_func
+
         if complete_gradient_epochs is None:
             self._complete_gradient_epochs: list[int] = [x for x in range(0, 1000, 2)]
         else:
@@ -325,11 +329,9 @@ class SVRG:
         )
 
         self._update = 0
-        self._step_size_factor = 1.0
         self._subset_number_list = []
         self._precond_version = precond_version
         self._precond = self.calc_precond(self._x)
-        self._step_size = 1.0
         self._prior_diag_hess = None
 
     @property
@@ -340,18 +342,9 @@ class SVRG:
     def x(self) -> Array:
         return self._x
 
-    def update_step_size(self):
-        if self.epoch <= 4:
-            self._step_size = self._step_size_factor * 2.0
-        elif self.epoch > 4 and self.epoch <= 8:
-            self._step_size = self._step_size_factor * 1.5
-        elif self.epoch > 8 and self.epoch <= 12:
-            self._step_size = self._step_size_factor * 1.0
-        else:
-            self._step_size = self._step_size_factor * 0.5
-
-        if self._verbose:
-            print(self._update, self.epoch, self._step_size)
+    @property
+    def step_size_func(self) -> Callable[[int], float]:
+        return self._step_size_func
 
     def calc_precond(
         self,
@@ -399,8 +392,9 @@ class SVRG:
             self._update % self._num_subsets == 0
         ) and self.epoch in self._precond_update_epochs
 
-        if self._update % self._num_subsets == 0:
-            self.update_step_size()
+        # update the step size according to the step size function
+        # that maps the update_number to the step size (int -> float)
+        self._step_size = self._step_size_func(self._update)
 
         if update_precond:
             if self._verbose:
@@ -705,3 +699,34 @@ class ProxSVRG:
         tmp = np.arange(self._num_subsets)
         np.random.shuffle(tmp)
         self._subset_number_list = tmp.tolist()
+
+
+def validate_stepsize_lambda_str(func_str: str):
+    """
+    Validates that the provided function string is a lambda that takes an int and returns a float.
+    """
+    try:
+        # Evaluate the function string safely
+        func = eval(
+            func_str, {"__builtins__": {}}
+        )  # Disable built-in functions for security
+
+        # Check if it is a function
+        if not callable(func):
+            raise ValueError("Provided input is not callable.")
+
+        # Check if it is a lambda (lambdas have "<lambda>" in their name)
+        if func.__name__ != "<lambda>":
+            raise ValueError("Only lambda functions are allowed.")
+
+        # Check the function behavior (type validation)
+        test_input = 42  # Example integer input
+        result = func(test_input)
+
+        if not isinstance(result, float):
+            raise TypeError("Lambda function must return a float.")
+
+        return func  # Return the validated lambda function
+
+    except Exception as e:
+        raise argparse.ArgumentTypeError(f"Invalid lambda function: {e}")
