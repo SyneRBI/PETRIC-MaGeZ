@@ -277,14 +277,14 @@ class SVRG:
     def __init__(
         self,
         subset_neglogL: SmoothSubsetFunction,
-        prior: SmoothFunctionWithDiagonalHessian,
+        prior: SmoothFunction,
         x_init: Array,
+        diag_precond_func: Callable[[Array], Array],
         step_size_func: Callable[[int], float] = lambda z: 1.0,
         complete_gradient_epochs: None | list[int] = None,
         precond_update_epochs: None | list[int] = None,
         verbose: bool = False,
         seed: int = 1,
-        precond_version: int = 2,
     ):
 
         np.random.seed(seed)
@@ -324,15 +324,12 @@ class SVRG:
         else:
             self._precond_update_epochs = precond_update_epochs
 
-        self._precond_filter = parallelproj.GaussianFilterOperator(
-            x_init.shape, sigma=2.0
-        )
-
         self._update = 0
         self._subset_number_list = []
-        self._precond_version = precond_version
-        self._precond = self.calc_precond(self._x)
-        self._prior_diag_hess = None
+
+        self._diag_precond_func = diag_precond_func
+        self._diag_precond = self._diag_precond_func(self._x)
+        self._step_size = 1.0
 
     @property
     def epoch(self) -> int:
@@ -345,30 +342,6 @@ class SVRG:
     @property
     def step_size_func(self) -> Callable[[int], float]:
         return self._step_size_func
-
-    def calc_precond(
-        self,
-        x: Array,
-        delta_rel: float = 1e-6,
-    ) -> Array:
-
-        # generate a smoothed version of the input image
-        # to avoid high values, especially in first and last slices
-        x_sm = self._precond_filter(x)
-        delta = delta_rel * x_sm.max()
-
-        if self._precond_version == 1:
-            precond = (x_sm + delta) / self._adjoint_ones
-        elif self._precond_version == 2:
-            self._prior_diag_hess = self._prior.diag_hessian(x_sm)
-
-            precond = (x_sm + delta) / (
-                self._adjoint_ones + 2 * self._prior_diag_hess * x_sm
-            )
-        else:
-            raise ValueError(f"Unknown preconditioner version {self._precond_version}")
-
-        return precond
 
     def update_all_subset_gradients(self) -> None:
 
@@ -399,7 +372,7 @@ class SVRG:
         if update_precond:
             if self._verbose:
                 print(f"  {self._update}, updating preconditioner")
-            self._precond = self.calc_precond(self._x)
+            self._diag_precond = self._diag_precond_func(self._x)
 
         if update_all_subset_gradients:
             if self._verbose:
@@ -430,7 +403,7 @@ class SVRG:
                 + self._summed_subset_gradients
             )
 
-        self._x = self._x - self._step_size * self._precond * approximated_gradient
+        self._x = self._x - self._step_size * self._diag_precond * approximated_gradient
 
         # enforce non-negative constraint
         self._xp.clip(self._x, 0.0, None, out=self._x)
@@ -730,3 +703,60 @@ def validate_stepsize_lambda_str(func_str: str):
 
     except Exception as e:
         raise argparse.ArgumentTypeError(f"Invalid lambda function: {e}")
+
+
+class DiagonalPreconditioner(abc.ABC):
+
+    def __init__(self):
+        self._filter_function = None
+
+    @abc.abstractmethod
+    def _call(self, x: Array) -> Array:
+        pass
+
+    @property
+    def filter_function(self) -> None | Callable[[Array], Array]:
+        return self._filter_function
+
+    @filter_function.setter
+    def filter_function(self, func: None | Callable[[Array], Array]):
+        self._filter_function = func
+
+    def __call__(self, x: Array) -> Array:
+
+        if self._filter_function is not None:
+            x_filt = self._filter_function(x)
+        else:
+            x_filt = x
+
+        return self._call(x_filt)
+
+
+class MLEMPreconditioner(DiagonalPreconditioner):
+    def __init__(self, adjoint_ones: Array, delta_rel: float = 1e-6):
+        self._adjoint_ones = adjoint_ones
+        self._delta_rel = delta_rel
+        super().__init__()
+
+    def _call(self, x: Array) -> Array:
+        return (x + self._delta_rel * x.max()) / self._adjoint_ones
+
+
+class HarmonicPreconditioner(DiagonalPreconditioner):
+    def __init__(
+        self,
+        adjoint_ones: Array,
+        prior: SmoothFunctionWithDiagonalHessian,
+        delta_rel: float = 1e-6,
+        factor: float = 1.5,
+    ):
+        self._adjoint_ones = adjoint_ones
+        self._delta_rel = delta_rel
+        self._factor = factor
+        self._prior = prior
+        super().__init__()
+
+    def _call(self, x: Array) -> Array:
+        return (x + self._delta_rel * x.max()) / (
+            self._adjoint_ones + self._factor * self._prior.diag_hessian(x) * x
+        )

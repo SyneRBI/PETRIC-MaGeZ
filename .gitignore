@@ -20,4 +20,6 @@ events.*
 # user defined ignores
 output_magez*/
 sim_results/
-sim_results_orig_phantom/*
+sim_results*/*
+run*.ps1
+run*.sh

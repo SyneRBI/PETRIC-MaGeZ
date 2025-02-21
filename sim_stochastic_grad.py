@@ -23,9 +23,9 @@ from sim_utils import (
     split_fwd_model,
     OSEM,
     SVRG,
-    ProxSVRG,
-    ProxRDP,
     validate_stepsize_lambda_str,
+    MLEMPreconditioner,
+    HarmonicPreconditioner,
 )
 
 from rdp import RDP
@@ -43,13 +43,16 @@ elif "cupy" in xp.__name__:
 parser = argparse.ArgumentParser()
 parser.add_argument("--seed", type=int, default=1)
 parser.add_argument("--true_counts", type=int, default=int(1e7))
-parser.add_argument("--beta_rel", type=float, default=5e-5)
+parser.add_argument("--beta_rel", type=float, default=1.0)
 parser.add_argument(
     "--step_size_func",
     type=validate_stepsize_lambda_str,
     help="Lambda function mapping update [int] to stepsize [float] (e.g., 'lambda x: float(x**2)')",
     default="lambda x: 1.0",
 )
+parser.add_argument("--num_epochs", type=int, default=20)
+parser.add_argument("--num_subsets", type=int, default=27)
+parser.add_argument("--precond_type", type=int, default=2, choices=[1, 2])
 
 args = parser.parse_args()
 
@@ -61,15 +64,15 @@ seed = int(args.seed)
 # true counts, reasonable range
 true_counts = args.true_counts
 # regularization weight, reasonable range: 5e-5 * (true_counts / 1e6) is medium regularization
-beta = args.beta_rel * (true_counts / 1e6)
+beta = args.beta_rel * (5e-4) * (true_counts / 1e7)
 # RDP gamma parameter
 gamma_rdp = 2.0
-# precond version: 1: x / A^T 1, 2: x / (A^T + 2*diag_hess_rdp(x)*x)
-precond_version = 2
+# type of preconditioner: 1 MLEM, 2: Harmonic
+precond_type = args.precond_type
 
 # number of epochs / subsets for stochastic gradient algorithms
-num_epochs = 20
-num_subsets = 27
+num_epochs = args.num_epochs
+num_subsets = args.num_subsets
 
 # max number of updates for reference L-BFGS-B solution
 num_iter_bfgs_ref = 500
@@ -134,7 +137,7 @@ voxel_size = (2.5, 2.5, 2.5)
 
 lor_desc = parallelproj.RegularPolygonPETLORDescriptor(
     scanner,
-    radial_trim=100,
+    radial_trim=40,
     sinogram_order=parallelproj.SinogramSpatialAxisOrder.RVP,
 )
 
@@ -369,11 +372,11 @@ print(cost_ref)
 # NRMSE = global MSE divided by the background signal (scale_fac)
 
 
-def nrmse(vec_x, vec_y):
-    return float(xp.sqrt(xp.mean((vec_x - vec_y) ** 2))) / scale_fac
+def nrmse(vec_x, vec_y, norm):
+    return float(xp.sqrt(xp.mean((vec_x - vec_y) ** 2))) / norm
 
 
-nmrse_callback = lambda x: nrmse(x, x_ref)
+nmrse_callback = lambda x: nrmse(x, x_ref, norm=scale_fac)
 
 # %%
 nrmse_osem = nmrse_callback(x_osem)
@@ -387,13 +390,28 @@ subset_neglogL = SubsetNegPoissonLogLWithPrior(
     data, pet_subset_lin_op_seq, contamination, subset_slices, prior=None
 )
 
+# setup the preconditioner
+if precond_type == 1:
+    diag_precond = MLEMPreconditioner(adjoint_ones)
+elif precond_type == 2:
+    diag_precond = HarmonicPreconditioner(adjoint_ones, prior=prior, factor=2.0)
+else:
+    raise ValueError("invalid preconditioner version")
+
+# add a gentle Gaussian pre-filter to the preconditioner
+# otherwise we get very high values in slices that are close to the
+# edge of the FOV and contain a strong gradient in z (e.g. edge of the phantom)
+diag_precond.filter_function = parallelproj.GaussianFilterOperator(
+    img_shape, sigma=3.0 / (2.35 * xp.asarray(voxel_size))
+)
+
 print("running SVRG")
 svrg_alg = SVRG(
     subset_neglogL,
     prior,
     x_init,
+    diag_precond_func=diag_precond.__call__,
     verbose=False,
-    precond_version=precond_version,
     step_size_func=step_size_func,
 )
 nrmse_svrg = svrg_alg.run(num_epochs * num_subsets, callback=nmrse_callback)
@@ -405,22 +423,13 @@ print(f"cost svrg .: {cost_svrg:.8E}")
 if cost_svrg < cost_ref:
     print("WARNING: SVRG cost is lower than reference cost. Find better reference.")
 
-## %%
-# prior_prox = ProxRDP(prior, niter=4, init_step=1.0, adaptive_step_size=False)
-#
-# print("running prox SVRG")
-# proxsvrg_alg = ProxSVRG(
-#    subset_neglogL, prior_prox, x_init, verbose=False, precond_version=precond_version
-# )
-# nrmse_proxsvrg = proxsvrg_alg.run(num_epochs * num_subsets, callback=nmrse_callback)
-
 # %%
 fig, ax = plt.subplots(2, 4, figsize=(12, 6), tight_layout=True)
 
 sl0 = x_true.shape[1] // 2
 sl1 = x_true.shape[2] // 2
 
-ims = dict(cmap="Greys", vmin=0, vmax=1.1 * float(xp.max(x_ref)))
+ims = dict(cmap="Greys", vmin=0, vmax=1.1 * float(xp.max(x_true)))
 ims_diff = dict(cmap="seismic", vmin=-0.1 * scale_fac, vmax=0.1 * scale_fac)
 
 ax[0, 0].imshow(to_device(x_ref[..., sl1], "cpu"), **ims)
