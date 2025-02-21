@@ -267,7 +267,7 @@ prior = RDP(
     xp=xp,
     dev=dev,
     voxel_size=xp.asarray(voxel_size, device=dev),
-    eps=float(xp.max(x_osem)) / 100,
+    eps=float(xp.max(x_osem)) * 1e-3,
     gamma=gamma_rdp,
 )
 
@@ -301,21 +301,6 @@ cost_function = SubsetNegPoissonLogLWithPrior(
 # %%
 # run (pre-conditioned) L-BFGS-B without subsets as reference
 
-# the preconditioner is taken from
-# Tsai et al: "Benefits of Using a Spatially-Variant Penalty Strength With Anatomical Priors in PET Reconstruction"
-# doi: 10.1109/TMI.2019.2913889
-
-# calculate data term preconditioner
-pp = 1 / xp.sqrt(kappa_img**2 + 1e-4)
-pp_np = xp.asnumpy(pp).ravel()
-
-precond_cf = lambda z: cost_function(z * pp_np)
-precond_grad = lambda z: cost_function.gradient(z * pp_np) * pp_np
-
-z0_bfgs = to_device((x_init / pp).ravel(), "cpu")
-
-bounds = x0.size * [(0, None)]
-
 sim_path = Path("sim_results")
 sim_path.mkdir(exist_ok=True)
 
@@ -329,19 +314,64 @@ if ref_file.exists():
     x_ref = xp.asarray(np.load(ref_file), device=dev)
 else:
     print("running L-BFGS-B reference")
-    res = fmin_l_bfgs_b(
-        precond_cf,
+    # the preconditioner is taken from
+    # Tsai et al: "Benefits of Using a Spatially-Variant Penalty Strength With Anatomical Priors in PET Reconstruction"
+    # doi: 10.1109/TMI.2019.2913889
+
+    # run a 1st L-BFGS-B to get a preconditioner based on the initial OSEM solution
+    # calculate data term preconditioner
+    precond_lbfgs0 = 1 / xp.sqrt(kappa_img**2 + prior.diag_hessian(x_init))
+    precond_lbfgs_np0 = xp.asnumpy(precond_lbfgs0).ravel()
+
+    def precond_cf0(z):
+        return cost_function(z * precond_lbfgs_np0)
+
+    def precond_grad0(z):
+        return cost_function.gradient(z * precond_lbfgs_np0) * precond_lbfgs_np0
+
+    z0_bfgs = to_device((x_init / precond_lbfgs0).ravel(), "cpu")
+    bounds = x0.size * [(0, None)]
+
+    res0 = fmin_l_bfgs_b(
+        precond_cf0,
         z0_bfgs,
-        precond_grad,
+        precond_grad0,
         disp=1,
-        maxiter=num_iter_bfgs_ref,
+        maxiter=30,
         bounds=bounds,
-        m=10,
-        factr=1.0,
+        m=20,
+        factr=1e-6,
         pgtol=1e-16,
     )
 
-    x_ref = pp * xp.asarray(res[0].reshape(img_shape), device=dev)
+    x_ref0 = precond_lbfgs0 * xp.asarray(res0[0].reshape(img_shape), device=dev)
+
+    # run 2nd L-BFGS-B with updated preconditioner
+    # calculate data term preconditioner
+    precond_lbfgs1 = 1 / xp.sqrt(kappa_img**2 + prior.diag_hessian(x_ref0))
+    precond_lbfgs_np1 = xp.asnumpy(precond_lbfgs1).ravel()
+
+    def precond_cf1(z):
+        return cost_function(z * precond_lbfgs_np1)
+
+    def precond_grad1(z):
+        return cost_function.gradient(z * precond_lbfgs_np1) * precond_lbfgs_np1
+
+    z1_bfgs = to_device((x_ref0 / precond_lbfgs1).ravel(), "cpu")
+
+    res1 = fmin_l_bfgs_b(
+        precond_cf1,
+        z1_bfgs,
+        precond_grad1,
+        disp=1,
+        maxiter=num_iter_bfgs_ref,
+        bounds=bounds,
+        m=20,
+        factr=1e-6,
+        pgtol=1e-16,
+    )
+
+    x_ref = precond_lbfgs1 * xp.asarray(res1[0].reshape(img_shape), device=dev)
     xp.save(ref_file, x_ref)
 
 # %%
@@ -406,55 +436,78 @@ print(f"cost ref   : {cost_ref:.8E}")
 print(f"cost svrg .: {cost_svrg:.8E}")
 
 if cost_svrg < cost_ref:
-    print("WARNING: SVRG cost is lower than reference cost. Find better reference.")
+    raise RuntimeError("SVRG cost is lower than reference cost. Find better reference.")
 
 # %%
-fig, ax = plt.subplots(2, 4, figsize=(12, 6), tight_layout=True)
+fig, ax = plt.subplots(
+    5,
+    4,
+    figsize=(12, 9),
+    tight_layout=True,
+    gridspec_kw={"height_ratios": [4, 1, 1, 0.07, 3]},
+)
 
 sl0 = x_true.shape[1] // 2
 sl1 = x_true.shape[2] // 2
+sl2 = x_true.shape[0] // 2
 
-ims = dict(cmap="Greys", vmin=0, vmax=1.1 * float(xp.max(x_true)))
+ims = dict(cmap="Greys", vmin=0, vmax=1.2 * float(xp.max(x_true)))
 ims_diff = dict(cmap="seismic", vmin=-0.05, vmax=0.05)
 
-ax[0, 0].imshow(to_device(x_ref[..., sl1], "cpu"), **ims)
-im0 = ax[1, 0].imshow(to_device(x_ref[:, sl0, :].T, "cpu"), **ims)
-ax[0, 0].set_title(f"reference (L-BFGS-B)", fontsize="medium")
+ax[0, 0].imshow(to_device(x_true[..., sl1], "cpu"), **ims)
+ax[1, 0].imshow(to_device(x_true[sl2, ...].T, "cpu"), **ims)
+im0 = ax[2, 0].imshow(to_device(x_true[:, sl0, :].T, "cpu"), **ims)
+ax[0, 0].set_title(f"ground truth", fontsize="medium")
 
-ax[0, 1].imshow(to_device(svrg_alg.x[..., sl1], "cpu"), **ims)
-im1 = ax[1, 1].imshow(to_device(svrg_alg.x[:, sl0, :].T, "cpu"), **ims)
-ax[0, 1].set_title(
+ax[0, 1].imshow(to_device(x_ref[..., sl1], "cpu"), **ims)
+ax[1, 1].imshow(to_device(x_ref[sl2, ...].T, "cpu"), **ims)
+im1 = ax[2, 1].imshow(to_device(x_ref[:, sl0, :].T, "cpu"), **ims)
+ax[0, 1].set_title(f"reference (L-BFGS-B)", fontsize="medium")
+
+ax[0, 2].imshow(to_device(svrg_alg.x[..., sl1], "cpu"), **ims)
+ax[1, 2].imshow(to_device(svrg_alg.x[sl2, ...].T, "cpu"), **ims)
+im2 = ax[2, 2].imshow(to_device(svrg_alg.x[:, sl0, :].T, "cpu"), **ims)
+ax[0, 2].set_title(
     f"SVRG {num_epochs} epochs, {num_subsets} subsets", fontsize="medium"
 )
 
-ax[0, 2].imshow(
+ax[0, 3].imshow(
     to_device((svrg_alg.x[..., sl1] - x_ref[..., sl1]) / scale_fac, "cpu"), **ims_diff
 )
-im2 = ax[1, 2].imshow(
+ax[1, 3].imshow(
+    to_device((svrg_alg.x[sl2, ...] - x_ref[sl2, ...]).T / scale_fac, "cpu"), **ims
+)
+im3 = ax[2, 3].imshow(
     to_device((svrg_alg.x[:, sl0, :].T - x_ref[:, sl0, :].T) / scale_fac, "cpu"),
     **ims_diff,
 )
-ax[0, 2].set_title(f"(SVRG - ref.) / bg. activity", fontsize="medium")
+ax[0, 3].set_title(f"(SVRG - ref.) / bg. activity", fontsize="medium")
 
-fig.colorbar(im0, ax=ax[1, 0], location="bottom", fraction=0.05)
-fig.colorbar(im1, ax=ax[1, 1], location="bottom", fraction=0.05)
-fig.colorbar(im2, ax=ax[1, 2], location="bottom", fraction=0.05)
+fig.colorbar(im0, ax=ax[-2, 0], location="bottom", fraction=1, aspect=70)
+fig.colorbar(im1, ax=ax[-2, 1], location="bottom", fraction=1, aspect=70)
+fig.colorbar(im2, ax=ax[-2, 2], location="bottom", fraction=1, aspect=70)
+fig.colorbar(im3, ax=ax[-2, 3], location="bottom", fraction=1, aspect=70)
 
+for axx in ax[-2, :]:
+    axx.set_axis_off()
 
 update_arr = np.arange(num_subsets * num_epochs)
 
-ax[0, -1].semilogy(update_arr / num_subsets, nrmse_svrg, label="SVRG")
-ax[0, -1].axhline(0.01, color="black", ls="--")
-ax[0, -1].set_title("whole image NRMSE", fontsize="medium")
-ax[0, -1].set_xlabel("epoch")
-ax[0, -1].grid(ls=":")
-ax[0, -1].legend()
+ax[-1, 0].semilogy(update_arr / num_subsets, nrmse_svrg, label="SVRG")
+ax[-1, 0].axhline(0.01, color="black", ls="--")
+ax[-1, 0].set_title("whole image NRMSE", fontsize="medium")
+ax[-1, 0].set_xlabel("epoch")
+ax[-1, 0].grid(ls=":")
+ax[-1, 0].legend()
 
-ax[1, -1].plot(
+ax[-1, 1].plot(
     update_arr / num_subsets, [svrg_alg.step_size_func(x) for x in update_arr]
 )
-ax[1, -1].set_title("step size", fontsize="medium")
-ax[1, -1].set_xlabel("epoch")
-ax[1, -1].grid(ls=":")
+ax[-1, 1].set_title("step size", fontsize="medium")
+ax[-1, 1].set_xlabel("epoch")
+ax[-1, 1].grid(ls=":")
+
+ax[-1, 2].set_axis_off()
+ax[-1, 3].set_axis_off()
 
 fig.show()
