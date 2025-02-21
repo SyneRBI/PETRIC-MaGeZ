@@ -1,21 +1,21 @@
 from __future__ import annotations
 
+from typing import Union, Callable, TYPE_CHECKING
+from types import ModuleType
+
 import abc
 import argparse
 import parallelproj
 import array_api_compat.numpy as np
 from array_api_compat import get_namespace, device
 
-from types import ModuleType
-from typing import TypeAlias, Callable
+if TYPE_CHECKING:
+    import cupy as cp
 
-Array: TypeAlias = np.ndarray
-try:
-    import array_api_compat.cupy as cp
+    Array = Union[np.ndarray, cp.ndarray]  # Used for type checking
+else:
+    Array = np.ndarray  # Default at runtime
 
-    Array: TypeAlias = Array | cp.ndarray
-except:
-    pass
 
 from copy import copy
 from rdp import SmoothFunction, SmoothFunctionWithDiagonalHessian

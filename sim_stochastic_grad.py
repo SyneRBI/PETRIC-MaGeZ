@@ -29,6 +29,7 @@ from sim_utils import (
 )
 
 from rdp import RDP
+from sim_phantoms import pet_phantom
 
 # choose a device (CPU or CUDA GPU)
 if "numpy" in xp.__name__:
@@ -53,6 +54,7 @@ parser.add_argument(
 parser.add_argument("--num_epochs", type=int, default=20)
 parser.add_argument("--num_subsets", type=int, default=27)
 parser.add_argument("--precond_type", type=int, default=2, choices=[1, 2])
+parser.add_argument("--phantom_type", type=int, default=-1, choices=[-1])
 
 args = parser.parse_args()
 
@@ -100,6 +102,8 @@ num_subsets_osem = 27
 # step size update function
 step_size_func = args.step_size_func
 
+# phantom type (int)
+phantom_type = args.phantom_type
 
 # %%
 # random seed
@@ -154,32 +158,15 @@ proj = parallelproj.RegularPolygonPETProjector(
     lor_desc, img_shape=img_shape, voxel_size=voxel_size
 )
 
-# setup a simple test image containing a few "hot rods"
-x_true = xp.ones(proj.in_shape, device=dev, dtype=xp.float32)
-c0 = proj.in_shape[0] // 2
-c1 = proj.in_shape[1] // 2
-x_true[(c0 - 4) : (c0 + 4), (c1 - 4) : (c1 + 4), :] = 3.0
+# %%
+# setup of true emission and attenuation image
 
-x_true[28:32, c1 : (c1 + 4), :] = 5.0
-x_true[c0 : (c0 + 4), 20:24, :] = 5.0
-
-x_true[-32:-28, c1 : (c1 + 4), :] = 0.1
-x_true[c0 : (c0 + 4), -24:-20, :] = 0.1
-
-x_true[:25, :, :] = 0
-x_true[-25:, :, :] = 0
-x_true[:, :10, :] = 0
-x_true[:, -10:, :] = 0
-
-x_true[:, :, :2] = 0
-x_true[:, :, -2:] = 0
+x_true, x_att = pet_phantom(img_shape, xp, dev, mu_value=0.01, type=phantom_type)
 
 # %%
-# Attenuation image and sinogram setup
+# Attenuation sinogram setup
 # ------------------------------------
 
-# setup an attenuation image
-x_att = 0.01 * xp.astype(x_true > 0, xp.float32)
 # calculate the attenuation sinogram
 att_sino = xp.exp(-proj(x_att))
 
@@ -336,7 +323,7 @@ sim_path.mkdir(exist_ok=True)
 
 ref_file = (
     sim_path
-    / f"rdp_t_{true_counts:.2E}_b_{beta:.2E}_g_{gamma_rdp:.2E}_n_{num_iter_bfgs_ref}_nr_{num_rings}_tof_{tof}_cf_{contam_fraction}_s_{seed}.npy"
+    / f"rdp_t_{true_counts:.2E}_b_{beta:.2E}_g_{gamma_rdp:.2E}_n_{num_iter_bfgs_ref}_nr_{num_rings}_tof_{tof}_cf_{contam_fraction}_s_{seed}_ph_{phantom_type}.npy"
 )
 
 if ref_file.exists():
