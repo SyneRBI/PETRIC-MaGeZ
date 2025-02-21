@@ -54,7 +54,7 @@ parser.add_argument(
 parser.add_argument("--num_epochs", type=int, default=20)
 parser.add_argument("--num_subsets", type=int, default=27)
 parser.add_argument("--precond_type", type=int, default=2, choices=[1, 2])
-parser.add_argument("--phantom_type", type=int, default=-1, choices=[-1])
+parser.add_argument("--phantom_type", type=int, default=1, choices=[-1, 1])
 
 args = parser.parse_args()
 
@@ -160,14 +160,12 @@ proj = parallelproj.RegularPolygonPETProjector(
 
 # %%
 # setup of true emission and attenuation image
-
+print("setting up phantom")
 x_true, x_att = pet_phantom(img_shape, xp, dev, mu_value=0.01, type=phantom_type)
 
 # %%
-# Attenuation sinogram setup
-# ------------------------------------
-
 # calculate the attenuation sinogram
+print("calculating attenuation sinogram")
 att_sino = xp.exp(-proj(x_att))
 
 # %%
@@ -417,7 +415,7 @@ sl0 = x_true.shape[1] // 2
 sl1 = x_true.shape[2] // 2
 
 ims = dict(cmap="Greys", vmin=0, vmax=1.1 * float(xp.max(x_true)))
-ims_diff = dict(cmap="seismic", vmin=-0.1 * scale_fac, vmax=0.1 * scale_fac)
+ims_diff = dict(cmap="seismic", vmin=-0.05, vmax=0.05)
 
 ax[0, 0].imshow(to_device(x_ref[..., sl1], "cpu"), **ims)
 im0 = ax[1, 0].imshow(to_device(x_ref[:, sl0, :].T, "cpu"), **ims)
@@ -429,11 +427,14 @@ ax[0, 1].set_title(
     f"SVRG {num_epochs} epochs, {num_subsets} subsets", fontsize="medium"
 )
 
-ax[0, 2].imshow(to_device(svrg_alg.x[..., sl1] - x_ref[..., sl1], "cpu"), **ims_diff)
-im2 = ax[1, 2].imshow(
-    to_device(svrg_alg.x[:, sl0, :].T - x_ref[:, sl0, :].T, "cpu"), **ims_diff
+ax[0, 2].imshow(
+    to_device((svrg_alg.x[..., sl1] - x_ref[..., sl1]) / scale_fac, "cpu"), **ims_diff
 )
-ax[0, 2].set_title(f"SVRG - ref.", fontsize="medium")
+im2 = ax[1, 2].imshow(
+    to_device((svrg_alg.x[:, sl0, :].T - x_ref[:, sl0, :].T) / scale_fac, "cpu"),
+    **ims_diff,
+)
+ax[0, 2].set_title(f"(SVRG - ref.) / bg. activity", fontsize="medium")
 
 fig.colorbar(im0, ax=ax[1, 0], location="bottom", fraction=0.05)
 fig.colorbar(im1, ax=ax[1, 1], location="bottom", fraction=0.05)
