@@ -45,6 +45,7 @@ def pet_phantom(
         x_att = xp.zeros(in_shape, device=dev, dtype=xp.float32)
         c0 = in_shape[0] / 2
         c1 = in_shape[1] / 2
+        c2 = in_shape[1] / 2
         a = in_shape[0] / 2.5  # semi-major axis
         b = in_shape[1] / 4  # semi-minor axis
 
@@ -71,6 +72,21 @@ def pet_phantom(
 
         x_att[:, :, 1][outer_mask] = mu_value
         x_att[:, :, -2][outer_mask] = mu_value
+
+        # add a few spheres to the emission image
+
+        x, y, z = xp.ogrid[: in_shape[0], : in_shape[1], : in_shape[2]]
+
+        r_sp1 = 3 * [in_shape[2] / 7]
+        r_sp2 = 3 * [in_shape[2] / 16]
+        offset = in_shape[2] // (4 / 3)
+
+        for i, r_sp in enumerate([r_sp1, r_sp2]):
+            sp_mask = ((x - c0) / r_sp[0]) ** 2 + (
+                (y - (c1 + ((-1) ** i) * offset)) / r_sp[1]
+            ) ** 2 + ((z - 15) / r_sp[2]) ** 2 <= 1
+            x_em[sp_mask] = 5.0
+
     else:
         raise ValueError("Invalid phantom type")
 
