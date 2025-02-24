@@ -90,7 +90,7 @@ def pet_phantom(
 
         for z in range(oversampled_shape[2]):
             x_em_oversampled[:, :, z][outer_mask] = 1.0
-            x_em_oversampled[:, :, z][inner_mask] = 0.0
+            x_em_oversampled[:, :, z][inner_mask] = 0.1
 
             x_att_oversampled[:, :, z][outer_mask] = mu_value
             x_att_oversampled[:, :, z][inner_mask] = mu_value / 3
@@ -171,8 +171,8 @@ def pet_phantom(
         x_em[:, :, -2:] = 0
 
         # make the attenuation a bit wider in z (plastic wall)
-        x_att[:, :, 0] = 0
-        x_att[:, :, -1] = 0
+        x_att[:, :, :1] = 0
+        x_att[:, :, -1:] = 0
 
     else:
         raise ValueError("Invalid phantom type")

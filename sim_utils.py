@@ -748,7 +748,7 @@ class HarmonicPreconditioner(DiagonalPreconditioner):
         adjoint_ones: Array,
         prior: SmoothFunctionWithDiagonalHessian,
         delta_rel: float = 1e-6,
-        factor: float = 1.5,
+        factor: float = 2.0,
     ):
         self._adjoint_ones = adjoint_ones
         self._delta_rel = delta_rel

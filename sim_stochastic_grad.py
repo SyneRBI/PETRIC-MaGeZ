@@ -43,7 +43,7 @@ elif "cupy" in xp.__name__:
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--seed", type=int, default=1)
-parser.add_argument("--true_counts", type=int, default=int(1e7))
+parser.add_argument("--true_counts", type=int, default=int(3e7))
 parser.add_argument("--beta_rel", type=float, default=1.0)
 parser.add_argument(
     "--step_size_func",
@@ -55,6 +55,7 @@ parser.add_argument("--num_epochs", type=int, default=20)
 parser.add_argument("--num_subsets", type=int, default=27)
 parser.add_argument("--precond_type", type=int, default=2, choices=[1, 2])
 parser.add_argument("--phantom_type", type=int, default=1, choices=[-1, 1])
+parser.add_argument("--tof", action="store_true")
 
 args = parser.parse_args()
 
@@ -66,7 +67,7 @@ seed = int(args.seed)
 # true counts, reasonable range
 true_counts = args.true_counts
 # regularization weight, reasonable range: 5e-5 * (true_counts / 1e6) is medium regularization
-beta = args.beta_rel * (5e-4) * (true_counts / 1e7)
+beta = args.beta_rel * (2e-4) * (true_counts / 3e7)
 # RDP gamma parameter
 gamma_rdp = 2.0
 # type of preconditioner: 1 MLEM, 2: Harmonic
@@ -83,9 +84,9 @@ num_iter_bfgs_ref = 500
 # number of rings of simulated PET scanner, should be odd in this example
 num_rings = 17
 # resolution of the simulated PET scanner in mm
-fwhm_data_mm = 4.5
+fwhm_data_mm = 4.0
 # simulated TOF or non-TOF system
-tof = False
+tof = args.tof
 # mean of contamination sinogram, relative to mean of trues sinogram, reasonable range: 0.5 - 1.0
 contam_fraction = 0.5
 # show the geometry of the scanner / image volume
@@ -108,6 +109,7 @@ phantom_type = args.phantom_type
 # %%
 # random seed
 np.random.seed(seed)
+xp.random.seed(seed)
 
 # %%
 # Setup of the forward model :math:`\bar{y}(x) = A x + s`
@@ -179,7 +181,7 @@ att_sino = xp.exp(-proj(x_att))
 # enable TOF - comment if you want to run non-TOF
 if tof is True:
     proj.tof_parameters = parallelproj.TOFParameters(
-        num_tofbins=13, tofbin_width=12.0, sigma_tof=12.0
+        num_tofbins=41, tofbin_width=12.0, sigma_tof=12.0
     )
 
 # setup the attenuation multiplication operator which is different
@@ -232,15 +234,13 @@ contamination = xp.full(
 noise_free_data += contamination
 
 # add Poisson noise
-data = xp.asarray(
-    np.random.poisson(parallelproj.to_numpy_array(noise_free_data)),
-    device=dev,
-    dtype=xp.float32,
-)
+print("adding Poisson noise")
+data = xp.random.poisson(noise_free_data)
 
 # %%
 # run quick OSEM with one iteration
 
+print("running OSEM")
 pet_subset_lin_op_seq_osem, subset_slices_osem = split_fwd_model(
     pet_lin_op, num_subsets_osem
 )
@@ -255,13 +255,20 @@ x_osem = osem_alg.run(x0, num_epochs_osem)
 
 x_init = x_osem.copy()
 
+del pet_subset_lin_op_seq_osem
+
 # %%
 # setup of the cost function
 
+print("setting up kappa")
 fwd_ones = pet_lin_op(xp.ones(pet_lin_op.in_shape, device=dev, dtype=xp.float32))
 fwd_osem = pet_lin_op(x_osem) + contamination
 kappa_img = xp.sqrt(pet_lin_op.adjoint((data * fwd_ones) / (fwd_osem**2)))
 
+del fwd_ones
+del fwd_osem
+
+print("setting up RDP")
 prior = RDP(
     img_shape,
     xp=xp,
@@ -274,29 +281,36 @@ prior = RDP(
 prior.kappa = kappa_img
 prior.scale = beta
 
-adjoint_ones = pet_lin_op.adjoint(
-    xp.ones(pet_lin_op.out_shape, device=dev, dtype=xp.float32)
-)
-
-## %%
-# x = x_init.copy()
-# h = prior.diag_hessian(x)
-# d_data = to_device(adjoint_ones, "cpu")
-# d_prior = to_device(h * x, "cpu")
-#
-## %%
-# import pymirc.viewer as pv
-# vi = pv.ThreeAxisViewer([d_data, d_prior, d_data > d_prior])
-
 # %%
-
-
 pet_subset_lin_op_seq, subset_slices = split_fwd_model(pet_lin_op, num_subsets)
 
 cost_function = SubsetNegPoissonLogLWithPrior(
     data, pet_subset_lin_op_seq, contamination, subset_slices, prior=prior
 )
 
+# %%
+# setup the preconditioner for stochastic gradient algorithms
+print("setting up preconditioner")
+
+adjoint_ones = pet_lin_op.adjoint(
+    xp.ones(pet_lin_op.out_shape, device=dev, dtype=xp.float32)
+)
+
+if precond_type == 1:
+    diag_precond = MLEMPreconditioner(adjoint_ones)
+elif precond_type == 2:
+    diag_precond = HarmonicPreconditioner(adjoint_ones, prior=prior, factor=2.0)
+else:
+    raise ValueError("invalid preconditioner version")
+
+# add a gentle Gaussian pre-filter to the preconditioner
+# otherwise we get very high values in slices that are close to the
+# edge of the FOV and contain a strong gradient in z (e.g. edge of the phantom)
+precond_pre_filter = parallelproj.GaussianFilterOperator(
+    img_shape, sigma=fwhm_data_mm / (2.35 * xp.asarray(voxel_size))
+)
+
+# diag_precond.filter_function = precond_pre_filter
 
 # %%
 # run (pre-conditioned) L-BFGS-B without subsets as reference
@@ -337,10 +351,10 @@ else:
         z0_bfgs,
         precond_grad0,
         disp=1,
-        maxiter=30,
+        maxiter=50,
         bounds=bounds,
         m=20,
-        factr=1e-6,
+        factr=1e-16,
         pgtol=1e-16,
     )
 
@@ -367,12 +381,13 @@ else:
         maxiter=num_iter_bfgs_ref,
         bounds=bounds,
         m=20,
-        factr=1e-6,
+        factr=1e-16,
         pgtol=1e-16,
     )
 
     x_ref = precond_lbfgs1 * xp.asarray(res1[0].reshape(img_shape), device=dev)
     xp.save(ref_file, x_ref)
+
 
 # %%
 cost_osem = cost_function(x_osem)
@@ -384,18 +399,18 @@ print(cost_ref)
 
 # %%
 # define NRMSE callback
-# NRMSE = global MSE divided by the background signal (scale_fac)
+# NRMSE = RMSE where true image > 0 divided by the background signal (scale_fac)
 
 
-def nrmse(vec_x, vec_y, norm):
-    return float(xp.sqrt(xp.mean((vec_x - vec_y) ** 2))) / norm
+def nrmse(vec_x, vec_y, mask, norm):
+    return float(xp.sqrt(xp.mean((vec_x[mask] - vec_y[mask]) ** 2))) / norm
 
 
-nmrse_callback = lambda x: nrmse(x, x_ref, norm=scale_fac)
+nrmse_callback = lambda x: nrmse(x, x_ref, x_true > 0, norm=scale_fac)
 
 # %%
-nrmse_osem = nmrse_callback(x_osem)
-nrmse_init = nmrse_callback(x_init)
+nrmse_osem = nrmse_callback(x_osem)
+nrmse_init = nrmse_callback(x_init)
 
 
 # %%
@@ -405,20 +420,6 @@ subset_neglogL = SubsetNegPoissonLogLWithPrior(
     data, pet_subset_lin_op_seq, contamination, subset_slices, prior=None
 )
 
-# setup the preconditioner
-if precond_type == 1:
-    diag_precond = MLEMPreconditioner(adjoint_ones)
-elif precond_type == 2:
-    diag_precond = HarmonicPreconditioner(adjoint_ones, prior=prior, factor=2.0)
-else:
-    raise ValueError("invalid preconditioner version")
-
-# add a gentle Gaussian pre-filter to the preconditioner
-# otherwise we get very high values in slices that are close to the
-# edge of the FOV and contain a strong gradient in z (e.g. edge of the phantom)
-diag_precond.filter_function = parallelproj.GaussianFilterOperator(
-    img_shape, sigma=3.0 / (2.35 * xp.asarray(voxel_size))
-)
 
 print("running SVRG")
 svrg_alg = SVRG(
@@ -429,7 +430,9 @@ svrg_alg = SVRG(
     verbose=False,
     step_size_func=step_size_func,
 )
-nrmse_svrg = svrg_alg.run(num_epochs * num_subsets, callback=nmrse_callback)
+nrmse_svrg = svrg_alg.run(num_epochs * num_subsets, callback=nrmse_callback)
+
+# %%
 cost_svrg = cost_function(svrg_alg.x)
 
 print(f"cost ref   : {cost_ref:.8E}")
@@ -437,6 +440,7 @@ print(f"cost svrg .: {cost_svrg:.8E}")
 
 if cost_svrg < cost_ref:
     raise RuntimeError("SVRG cost is lower than reference cost. Find better reference.")
+
 
 # %%
 fig, ax = plt.subplots(
@@ -475,7 +479,7 @@ ax[0, 3].imshow(
     to_device((svrg_alg.x[..., sl1] - x_ref[..., sl1]) / scale_fac, "cpu"), **ims_diff
 )
 ax[1, 3].imshow(
-    to_device((svrg_alg.x[sl2, ...] - x_ref[sl2, ...]).T / scale_fac, "cpu"), **ims
+    to_device((svrg_alg.x[sl2, ...] - x_ref[sl2, ...]).T / scale_fac, "cpu"), **ims_diff
 )
 im3 = ax[2, 3].imshow(
     to_device((svrg_alg.x[:, sl0, :].T - x_ref[:, sl0, :].T) / scale_fac, "cpu"),
@@ -495,7 +499,7 @@ update_arr = np.arange(num_subsets * num_epochs)
 
 ax[-1, 0].semilogy(update_arr / num_subsets, nrmse_svrg, label="SVRG")
 ax[-1, 0].axhline(0.01, color="black", ls="--")
-ax[-1, 0].set_title("whole image NRMSE", fontsize="medium")
+ax[-1, 0].set_title("NRMSE", fontsize="medium")
 ax[-1, 0].set_xlabel("epoch")
 ax[-1, 0].grid(ls=":")
 ax[-1, 0].legend()
@@ -510,4 +514,5 @@ ax[-1, 1].grid(ls=":")
 ax[-1, 2].set_axis_off()
 ax[-1, 3].set_axis_off()
 
+fig.savefig(ref_file.with_suffix(".png"))
 fig.show()
