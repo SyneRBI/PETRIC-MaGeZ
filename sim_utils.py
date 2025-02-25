@@ -733,7 +733,7 @@ class DiagonalPreconditioner(abc.ABC):
 
 
 class MLEMPreconditioner(DiagonalPreconditioner):
-    def __init__(self, adjoint_ones: Array, delta_rel: float = 1e-6):
+    def __init__(self, adjoint_ones: Array, delta_rel: float = 1e-4):
         self._adjoint_ones = adjoint_ones
         self._delta_rel = delta_rel
         super().__init__()
@@ -747,7 +747,7 @@ class HarmonicPreconditioner(DiagonalPreconditioner):
         self,
         adjoint_ones: Array,
         prior: SmoothFunctionWithDiagonalHessian,
-        delta_rel: float = 1e-6,
+        delta_rel: float = 1e-4,
         factor: float = 2.0,
     ):
         self._adjoint_ones = adjoint_ones

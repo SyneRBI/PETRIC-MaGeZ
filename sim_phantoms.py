@@ -104,7 +104,7 @@ def pet_phantom(
         r_sp = 3 * [oversampled_shape[2] / 9]
         r_sp2 = 3 * [oversampled_shape[2] / 17]
 
-        for z_offset in [c2, 0.4 * c2]:
+        for z_offset in [c2, 0.45 * c2]:
             sp_mask = ((x - c0) / r_sp[0]) ** 2 + ((y - 1.4 * c1) / r_sp[1]) ** 2 + (
                 (z - z_offset) / r_sp[2]
             ) ** 2 <= 1
@@ -167,12 +167,12 @@ def pet_phantom(
         x_em = x_em_oversampled.copy() / (oversampling_factor**3)
         x_att = x_att_oversampled.copy() / (oversampling_factor**3)
 
-        x_em[:, :, :2] = 0
-        x_em[:, :, -2:] = 0
+        x_em[:, :, :3] = 0
+        x_em[:, :, -3:] = 0
 
         # make the attenuation a bit wider in z (plastic wall)
-        x_att[:, :, :1] = 0
-        x_att[:, :, -1:] = 0
+        x_att[:, :, :2] = 0
+        x_att[:, :, -2:] = 0
 
     else:
         raise ValueError("Invalid phantom type")

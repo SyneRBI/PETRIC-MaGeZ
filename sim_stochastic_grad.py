@@ -181,7 +181,7 @@ att_sino = xp.exp(-proj(x_att))
 # enable TOF - comment if you want to run non-TOF
 if tof is True:
     proj.tof_parameters = parallelproj.TOFParameters(
-        num_tofbins=41, tofbin_width=12.0, sigma_tof=12.0
+        num_tofbins=21, tofbin_width=25.0, sigma_tof=25.0
     )
 
 # setup the attenuation multiplication operator which is different
@@ -296,13 +296,6 @@ adjoint_ones = pet_lin_op.adjoint(
     xp.ones(pet_lin_op.out_shape, device=dev, dtype=xp.float32)
 )
 
-if precond_type == 1:
-    diag_precond = MLEMPreconditioner(adjoint_ones)
-elif precond_type == 2:
-    diag_precond = HarmonicPreconditioner(adjoint_ones, prior=prior, factor=2.0)
-else:
-    raise ValueError("invalid preconditioner version")
-
 # add a gentle Gaussian pre-filter to the preconditioner
 # otherwise we get very high values in slices that are close to the
 # edge of the FOV and contain a strong gradient in z (e.g. edge of the phantom)
@@ -310,7 +303,22 @@ precond_pre_filter = parallelproj.GaussianFilterOperator(
     img_shape, sigma=fwhm_data_mm / (2.35 * xp.asarray(voxel_size))
 )
 
-# diag_precond.filter_function = precond_pre_filter
+if precond_type == 1:
+    diag_precond = MLEMPreconditioner(adjoint_ones)
+elif precond_type == 2:
+    diag_precond = HarmonicPreconditioner(adjoint_ones, prior=prior, factor=2.0)
+    diag_precond.filter_function = precond_pre_filter
+else:
+    raise ValueError("invalid preconditioner version")
+
+###############################
+# %%
+# qq = diag_precond(x_init)
+# import pymirc.viewer as pv
+# vi = pv.ThreeAxisViewer(xp.asnumpy(qq))
+# breakpoint()
+###############################
+
 
 # %%
 # run (pre-conditioned) L-BFGS-B without subsets as reference
