@@ -8,6 +8,7 @@ try:
 except ImportError:
     import array_api_compat.numpy as xp
 
+import json
 import parallelproj
 import array_api_compat.numpy as np
 import matplotlib.pyplot as plt
@@ -15,6 +16,7 @@ import matplotlib.pyplot as plt
 from array_api_compat import to_device
 from scipy.optimize import fmin_l_bfgs_b
 from pathlib import Path
+from copy import copy
 
 import argparse
 
@@ -30,6 +32,7 @@ from sim_utils import (
 
 from rdp import RDP
 from sim_phantoms import pet_phantom
+import re
 
 # choose a device (CPU or CUDA GPU)
 if "numpy" in xp.__name__:
@@ -39,6 +42,16 @@ elif "cupy" in xp.__name__:
     # using cupy, only cuda devices are possible
     dev = xp.cuda.Device(0)
 
+
+# %%
+def sanitize_filename(filename):
+    return re.sub(r"[^\w\-_\.]", "_", filename)
+
+
+def nrmse(vec_x, vec_y, mask, norm):
+    return float(xp.sqrt(xp.mean((vec_x[mask] - vec_y[mask]) ** 2))) / norm
+
+
 # %%
 
 parser = argparse.ArgumentParser()
@@ -47,7 +60,7 @@ parser.add_argument("--true_counts", type=int, default=int(3e7))
 parser.add_argument("--beta_rel", type=float, default=1.0)
 parser.add_argument(
     "--step_size_func",
-    type=validate_stepsize_lambda_str,
+    type=str,
     help="Lambda function mapping update [int] to stepsize [float] (e.g., 'lambda x: float(x**2)')",
     default="lambda x: 1.0",
 )
@@ -102,7 +115,7 @@ num_epochs_osem = 1
 num_subsets_osem = 27
 
 # step size update function
-step_size_func = args.step_size_func
+step_size_func = validate_stepsize_lambda_str(args.step_size_func)
 
 # phantom type (int)
 phantom_type = args.phantom_type
@@ -425,12 +438,6 @@ print(cost_ref)
 # %%
 # define NRMSE callback
 # NRMSE = RMSE where true image > 0 divided by the background signal (scale_fac)
-
-
-def nrmse(vec_x, vec_y, mask, norm):
-    return float(xp.sqrt(xp.mean((vec_x[mask] - vec_y[mask]) ** 2))) / norm
-
-
 nrmse_callback = lambda x: nrmse(x, x_ref, x_true > 0, norm=scale_fac)
 
 # %%
@@ -469,6 +476,28 @@ if cost_stochastic < cost_ref:
         "stochastic cost is lower than reference cost. Find better reference."
     )
 
+# %%
+# save the results
+res_dict = vars(copy(args))
+
+res_dict["cost_ref"] = cost_ref
+res_dict["cost_osem"] = cost_osem
+res_dict["cost_stochastic"] = cost_stochastic
+res_dict["nrmse_stochastic"] = nrmse_stochastic
+res_dict["nrmse_osem"] = nrmse_osem
+res_dict["nrmse_init"] = nrmse_init
+
+
+res_file = (
+    ref_file.parent
+    / f"{ref_file.stem}_ne_{num_epochs}_ns_{num_subsets}_m_{method}_pc__{precond_type}_{sanitize_filename(args.step_size_func)}.json"
+)
+
+with open(res_file, "w", encoding="utf-8") as f:
+    json.dump(res_dict, f)
+
+recon_file = res_file.with_suffix(".npy")
+xp.save(recon_file, stochastic_alg.x)
 
 # %%
 fig, ax = plt.subplots(
@@ -562,7 +591,7 @@ ax[-1, -1].text(
 ax[-1, 2].set_axis_off()
 ax[-1, 3].set_axis_off()
 
-fig.savefig(
-    ref_file.parent / f"{ref_file.stem}_ne_{num_epochs}_ns_{num_subsets}_m_{method}.png"
-)
+fig_file = res_file.with_suffix(".png")
+
+fig.savefig(fig_file, dpi=300)
 fig.show()
