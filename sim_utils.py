@@ -332,7 +332,7 @@ class StochasticGradientDescent:
 
         self._update = 0
         self._subset_number_list = []
-        self._subset_gradients = []
+        self._subset_gradients = {}
         self._summed_subset_gradients = None
 
         self._diag_precond_func = diag_precond_func
@@ -353,15 +353,15 @@ class StochasticGradientDescent:
 
     def update_all_subset_gradients(self) -> None:
 
-        self._subset_gradients = []
+        self._subset_gradients = {}
         subset_prior_gradient = self._prior.gradient(self._x) / self._num_subsets
 
         for i in range(self._num_subsets):
-            self._subset_gradients.append(
+            self._subset_gradients[i] = (
                 self._subset_neglogL.subset_gradient(self._x, i) + subset_prior_gradient
             )
 
-        self._summed_subset_gradients = sum(self._subset_gradients)
+        self._summed_subset_gradients = sum(self._subset_gradients.values())
 
     def update(self):
 
