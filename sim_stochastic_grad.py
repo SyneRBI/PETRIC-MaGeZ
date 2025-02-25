@@ -22,7 +22,7 @@ from sim_utils import (
     SubsetNegPoissonLogLWithPrior,
     split_fwd_model,
     OSEM,
-    SVRG,
+    StochasticGradientDescent,
     validate_stepsize_lambda_str,
     MLEMPreconditioner,
     HarmonicPreconditioner,
@@ -56,6 +56,7 @@ parser.add_argument("--num_subsets", type=int, default=27)
 parser.add_argument("--precond_type", type=int, default=2, choices=[1, 2])
 parser.add_argument("--phantom_type", type=int, default=1, choices=[1, 2])
 parser.add_argument("--tof", action="store_true")
+parser.add_argument("--method", default="SVRG", choices=["SVRG", "SGD", "SAGA"])
 
 args = parser.parse_args()
 
@@ -105,6 +106,9 @@ step_size_func = args.step_size_func
 
 # phantom type (int)
 phantom_type = args.phantom_type
+
+# stochastic gradient method
+method = args.method
 
 # %%
 # random seed
@@ -435,32 +439,35 @@ nrmse_init = nrmse_callback(x_init)
 
 
 # %%
-# run SVRG
+# run stochastic gradient descent
 # setup subset negative Poisson log-likelihood without prior
 subset_neglogL = SubsetNegPoissonLogLWithPrior(
     data, pet_subset_lin_op_seq, contamination, subset_slices, prior=None
 )
 
 
-print("running SVRG")
-svrg_alg = SVRG(
+print(f"running stochastic gradient descent {method}")
+stochastic_alg = StochasticGradientDescent(
     subset_neglogL,
     prior,
     x_init,
+    method=method,
     diag_precond_func=diag_precond.__call__,
     verbose=False,
     step_size_func=step_size_func,
 )
-nrmse_svrg = svrg_alg.run(num_epochs * num_subsets, callback=nrmse_callback)
+nrmse_stochastic = stochastic_alg.run(num_epochs * num_subsets, callback=nrmse_callback)
 
 # %%
-cost_svrg = cost_function(svrg_alg.x)
+cost_stochastic = cost_function(stochastic_alg.x)
 
 print(f"cost ref   : {cost_ref:.8E}")
-print(f"cost svrg .: {cost_svrg:.8E}")
+print(f"cost stochastic .: {cost_stochastic:.8E}")
 
-if cost_svrg < cost_ref:
-    raise RuntimeError("SVRG cost is lower than reference cost. Find better reference.")
+if cost_stochastic < cost_ref:
+    raise RuntimeError(
+        "stochastic cost is lower than reference cost. Find better reference."
+    )
 
 
 # %%
@@ -489,24 +496,26 @@ ax[1, 1].imshow(to_device(x_ref[sl2, ...].T, "cpu"), **ims)
 im1 = ax[2, 1].imshow(to_device(x_ref[:, sl0, :].T, "cpu"), **ims)
 ax[0, 1].set_title(f"reference (L-BFGS-B)", fontsize="medium")
 
-ax[0, 2].imshow(to_device(svrg_alg.x[..., sl1], "cpu"), **ims)
-ax[1, 2].imshow(to_device(svrg_alg.x[sl2, ...].T, "cpu"), **ims)
-im2 = ax[2, 2].imshow(to_device(svrg_alg.x[:, sl0, :].T, "cpu"), **ims)
+ax[0, 2].imshow(to_device(stochastic_alg.x[..., sl1], "cpu"), **ims)
+ax[1, 2].imshow(to_device(stochastic_alg.x[sl2, ...].T, "cpu"), **ims)
+im2 = ax[2, 2].imshow(to_device(stochastic_alg.x[:, sl0, :].T, "cpu"), **ims)
 ax[0, 2].set_title(
-    f"SVRG {num_epochs} epochs, {num_subsets} subsets", fontsize="medium"
+    f"{method} {num_epochs} epochs, {num_subsets} subsets", fontsize="medium"
 )
 
 ax[0, 3].imshow(
-    to_device((svrg_alg.x[..., sl1] - x_ref[..., sl1]) / scale_fac, "cpu"), **ims_diff
-)
-ax[1, 3].imshow(
-    to_device((svrg_alg.x[sl2, ...] - x_ref[sl2, ...]).T / scale_fac, "cpu"), **ims_diff
-)
-im3 = ax[2, 3].imshow(
-    to_device((svrg_alg.x[:, sl0, :].T - x_ref[:, sl0, :].T) / scale_fac, "cpu"),
+    to_device((stochastic_alg.x[..., sl1] - x_ref[..., sl1]) / scale_fac, "cpu"),
     **ims_diff,
 )
-ax[0, 3].set_title(f"(SVRG - ref.) / bg. activity", fontsize="medium")
+ax[1, 3].imshow(
+    to_device((stochastic_alg.x[sl2, ...] - x_ref[sl2, ...]).T / scale_fac, "cpu"),
+    **ims_diff,
+)
+im3 = ax[2, 3].imshow(
+    to_device((stochastic_alg.x[:, sl0, :].T - x_ref[:, sl0, :].T) / scale_fac, "cpu"),
+    **ims_diff,
+)
+ax[0, 3].set_title(f"({method} - ref.) / bg. activity", fontsize="medium")
 
 fig.colorbar(im0, ax=ax[-2, 0], location="bottom", fraction=1, aspect=70)
 fig.colorbar(im1, ax=ax[-2, 1], location="bottom", fraction=1, aspect=70)
@@ -518,7 +527,7 @@ for axx in ax[-2, :]:
 
 update_arr = np.arange(num_subsets * num_epochs)
 
-ax[-1, 0].semilogy(update_arr / num_subsets, nrmse_svrg, label="SVRG")
+ax[-1, 0].semilogy(update_arr / num_subsets, nrmse_stochastic, label=method)
 ax[-1, 0].axhline(0.01, color="black", ls="--")
 ax[-1, 0].set_title("NRMSE", fontsize="medium")
 ax[-1, 0].set_xlabel("epoch")
@@ -526,7 +535,7 @@ ax[-1, 0].grid(ls=":")
 ax[-1, 0].legend()
 
 ax[-1, 1].plot(
-    update_arr / num_subsets, [svrg_alg.step_size_func(x) for x in update_arr]
+    update_arr / num_subsets, [stochastic_alg.step_size_func(x) for x in update_arr]
 )
 ax[-1, 1].set_title("step size", fontsize="medium")
 ax[-1, 1].set_xlabel("epoch")
@@ -535,6 +544,9 @@ ax[-1, 1].grid(ls=":")
 # add simulation parameters as text
 params = {key: value for key, value in vars(args).items() if key != "step_size_func"}
 params_text = "\n".join([f"{key}: {value}" for key, value in params.items()])
+params_text += (
+    f"\n(cost_stoch-cost_ref)/cost_ref: {(cost_stochastic-cost_ref)/abs(cost_ref):.2E}"
+)
 
 ax[-1, -1].text(
     0.5,
@@ -550,5 +562,7 @@ ax[-1, -1].text(
 ax[-1, 2].set_axis_off()
 ax[-1, 3].set_axis_off()
 
-fig.savefig(ref_file.parent / f"{ref_file.stem}_ne_{num_epochs}_ns_{num_subsets}.png")
+fig.savefig(
+    ref_file.parent / f"{ref_file.stem}_ne_{num_epochs}_ns_{num_subsets}_m_{method}.png"
+)
 fig.show()

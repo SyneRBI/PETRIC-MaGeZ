@@ -273,13 +273,14 @@ def split_fwd_model(
     return pet_subset_lin_op_seq, subset_slices
 
 
-class SVRG:
+class StochasticGradientDescent:
     def __init__(
         self,
         subset_neglogL: SmoothSubsetFunction,
         prior: SmoothFunction,
         x_init: Array,
         diag_precond_func: Callable[[Array], Array],
+        method: str = "SVRG",
         step_size_func: Callable[[int], float] = lambda z: 1.0,
         complete_gradient_epochs: None | list[int] = None,
         precond_update_epochs: None | list[int] = None,
@@ -288,6 +289,11 @@ class SVRG:
     ):
 
         np.random.seed(seed)
+
+        if method not in ["SVRG", "SGD", "SAGA"]:
+            raise ValueError("Unknown optimization method")
+
+        self._method = method
 
         self._verbose = verbose
         self._subset = 0
@@ -326,6 +332,8 @@ class SVRG:
 
         self._update = 0
         self._subset_number_list = []
+        self._subset_gradients = []
+        self._summed_subset_gradients = None
 
         self._diag_precond_func = diag_precond_func
         self._diag_precond = self._diag_precond_func(self._x)
@@ -357,52 +365,61 @@ class SVRG:
 
     def update(self):
 
-        update_all_subset_gradients = (
-            self._update % self._num_subsets == 0
-        ) and self.epoch in self._complete_gradient_epochs
+        # update the step size according to the step size function
+        # that maps the update_number to the step size (int -> float)
+        self._step_size = self._step_size_func(self._update)
 
         update_precond = (
             self._update % self._num_subsets == 0
         ) and self.epoch in self._precond_update_epochs
-
-        # update the step size according to the step size function
-        # that maps the update_number to the step size (int -> float)
-        self._step_size = self._step_size_func(self._update)
 
         if update_precond:
             if self._verbose:
                 print(f"  {self._update}, updating preconditioner")
             self._diag_precond = self._diag_precond_func(self._x)
 
-        if update_all_subset_gradients:
-            if self._verbose:
-                print(
-                    f"  {self._update}, {self._subset}, recalculating all subset gradients"
-                )
-            self.update_all_subset_gradients()
-            approximated_gradient = self._summed_subset_gradients
-        else:
-            if self._subset_number_list == []:
-                self.create_subset_number_list()
+        # choose the subset to update
+        if self._subset_number_list == []:
+            self.create_subset_number_list()
+        self._subset = self._subset_number_list.pop()
+        if self._verbose:
+            print(f" {self._update}, {self._subset}, subset gradient update")
 
-            self._subset = self._subset_number_list.pop()
-            if self._verbose:
-                print(f" {self._update}, {self._subset}, subset gradient update")
-
-            subset_prior_gradient = self._prior.gradient(self._x) / self._num_subsets
-
+        # calculate the stochastic gradient
+        if self._method == "SGD":
             approximated_gradient = (
                 self._num_subsets
-                * (
-                    (
-                        self._subset_neglogL.subset_gradient(self._x, self._subset)
-                        + subset_prior_gradient
-                    )
-                    - self._subset_gradients[self._subset]
-                )
-                + self._summed_subset_gradients
+                * self._subset_neglogL.subset_gradient(self._x, self._subset)
+                + self._prior.gradient(self._x)
             )
+        elif self._method == "SVRG":
+            update_all_subset_gradients = (
+                self._update % self._num_subsets == 0
+            ) and self.epoch in self._complete_gradient_epochs
 
+            if update_all_subset_gradients:
+                if self._verbose:
+                    print(
+                        f"  {self._update}, {self._subset}, recalculating all subset gradients"
+                    )
+                self.update_all_subset_gradients()
+                approximated_gradient = self._summed_subset_gradients
+            else:
+                approximated_gradient = (
+                    self._num_subsets
+                    * (
+                        (
+                            self._subset_neglogL.subset_gradient(self._x, self._subset)
+                            + self._prior.gradient(self._x) / self._num_subsets
+                        )
+                        - self._subset_gradients[self._subset]
+                    )
+                    + self._summed_subset_gradients
+                )
+        else:
+            raise ValueError("Unknown optimization method")
+
+        # update the image
         self._x = self._x - self._step_size * self._diag_precond * approximated_gradient
 
         # enforce non-negative constraint
