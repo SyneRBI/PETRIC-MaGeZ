@@ -550,5 +550,5 @@ ax[-1, -1].text(
 ax[-1, 2].set_axis_off()
 ax[-1, 3].set_axis_off()
 
-fig.savefig(ref_file.with_suffix(".png"))
+fig.savefig(ref_file.parent / f"{ref_file.stem}_ne_{num_epochs}_ns_{num_subsets}.png")
 fig.show()
