@@ -332,7 +332,9 @@ class StochasticGradientDescent:
 
         self._update = 0
         self._subset_number_list = []
-        self._subset_gradients = {}
+        self._subset_gradients = self._xp.zeros(
+            (self._num_subsets,) + self._x.shape, device=self._dev, dtype=self._x.dtype
+        )
         self._summed_subset_gradients = None
 
         self._diag_precond_func = diag_precond_func
@@ -353,15 +355,17 @@ class StochasticGradientDescent:
 
     def update_all_subset_gradients(self) -> None:
 
-        self._subset_gradients = {}
+        self._subset_gradients = self._xp.zeros(
+            (self._num_subsets,) + self._x.shape, device=self._dev, dtype=self._x.dtype
+        )
         subset_prior_gradient = self._prior.gradient(self._x) / self._num_subsets
 
         for i in range(self._num_subsets):
-            self._subset_gradients[i] = (
+            self._subset_gradients[i, ...] = (
                 self._subset_neglogL.subset_gradient(self._x, i) + subset_prior_gradient
             )
 
-        self._summed_subset_gradients = sum(self._subset_gradients.values())
+        self._summed_subset_gradients = self._xp.sum(self._subset_gradients, axis=0)
 
     def update(self):
 
@@ -416,6 +420,18 @@ class StochasticGradientDescent:
                     )
                     + self._summed_subset_gradients
                 )
+        elif self._method == "SAGA":
+            subset_grad = (
+                self._subset_neglogL.subset_gradient(self._x, self._subset)
+                + self._prior.gradient(self._x) / self._num_subsets
+            )
+
+            approximated_gradient = self._num_subsets * (
+                subset_grad - self._subset_gradients[self._subset]
+            ) + self._xp.sum(self._subset_gradients, axis=0)
+
+            self._subset_gradients[self._subset, ...] = subset_grad
+
         else:
             raise ValueError("Unknown optimization method")
 
