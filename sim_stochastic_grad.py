@@ -54,7 +54,7 @@ parser.add_argument(
 parser.add_argument("--num_epochs", type=int, default=20)
 parser.add_argument("--num_subsets", type=int, default=27)
 parser.add_argument("--precond_type", type=int, default=2, choices=[1, 2])
-parser.add_argument("--phantom_type", type=int, default=1, choices=[-1, 1])
+parser.add_argument("--phantom_type", type=int, default=1, choices=[1, 2])
 parser.add_argument("--tof", action="store_true")
 
 args = parser.parse_args()
@@ -163,7 +163,20 @@ proj = parallelproj.RegularPolygonPETProjector(
 # %%
 # setup of true emission and attenuation image
 print("setting up phantom")
-x_true, x_att = pet_phantom(img_shape, xp, dev, mu_value=0.01, type=phantom_type)
+
+if phantom_type == 1:
+    x_true, x_att = pet_phantom(img_shape, xp, dev, mu_value=0.01)
+if phantom_type == 2:
+    x_true, x_att = pet_phantom(
+        img_shape,
+        xp,
+        dev,
+        mu_value=0.01,
+        add_spheres=True,
+        add_inner_cylinder=False,
+        r0=0.25,
+        r1=0.25,
+    )
 
 # %%
 # calculate the attenuation sinogram

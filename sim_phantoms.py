@@ -14,7 +14,14 @@ else:
 
 
 def pet_phantom(
-    in_shape: tuple[int, int, int], xp: ModuleType, dev, mu_value: float = 0.01, type=-1
+    in_shape: tuple[int, int, int],
+    xp: ModuleType,
+    dev,
+    mu_value: float = 0.01,
+    add_spheres: bool = True,
+    add_inner_cylinder: bool = True,
+    r0=0.45,
+    r1=0.28,
 ) -> tuple[Array, Array]:
     """
     Generate a 3D PET phantom.
@@ -29,9 +36,6 @@ def pet_phantom(
         Device to use.
     mu_value : float
         Attenuation coefficient.
-    type : int
-        Phantom type.
-
     Returns
     -------
     tuple
@@ -45,58 +49,37 @@ def pet_phantom(
     if dev == "cpu":
         dev = None
 
-    if type == -1:
-        # box phantom
-        x_em = xp.ones(in_shape, device=dev, dtype=xp.float32)
-        c0 = in_shape[0] // 2
-        c1 = in_shape[1] // 2
-        x_em[(c0 - 4) : (c0 + 4), (c1 - 4) : (c1 + 4), :] = 1.0
+    oversampling_factor = 4
 
-        x_em[28:32, c1 : (c1 + 4), :] = 2.5
-        x_em[c0 : (c0 + 4), 20:24, :] = 2.5
+    # elliptical phantom on oversampled grid
+    oversampled_shape = tuple(oversampling_factor * x for x in in_shape)
+    x_em_oversampled = xp.zeros(oversampled_shape, device=dev, dtype=xp.float32)
+    x_att_oversampled = xp.zeros(oversampled_shape, device=dev, dtype=xp.float32)
+    c0 = oversampled_shape[0] / 2
+    c1 = oversampled_shape[1] / 2
+    c2 = oversampled_shape[2] / 2
+    a = r0 * oversampled_shape[0]  # semi-major axis
+    b = r1 * oversampled_shape[1]  # semi-minor axis
 
-        x_em[-32:-28, c1 : (c1 + 4), :] = 0.1
-        x_em[c0 : (c0 + 4), -24:-20, :] = 0.1
+    rix = oversampled_shape[0] / 25
+    riy = oversampled_shape[1] / 25
 
-        x_em[:25, :, :] = 0
-        x_em[-25:, :, :] = 0
-        x_em[:, :10, :] = 0
-        x_em[:, -10:, :] = 0
+    y, x = xp.ogrid[: oversampled_shape[0], : oversampled_shape[1]]
 
-        x_em[:, :, :2] = 0
-        x_em[:, :, -2:] = 0
+    outer_mask = ((x - c0) / a) ** 2 + ((y - c1) / b) ** 2 <= 1
+    inner_mask = ((x - c0) / rix) ** 2 + ((y - c1) / riy) ** 2 <= 1
 
-        x_att = mu_value * xp.astype(x_em > 0, xp.float32)
-    elif type == 1:
-        oversampling_factor = 4
+    for z in range(oversampled_shape[2]):
+        x_em_oversampled[:, :, z][outer_mask] = 1.0
+        x_att_oversampled[:, :, z][outer_mask] = mu_value
 
-        # elliptical phantom on oversampled grid
-        oversampled_shape = tuple(oversampling_factor * x for x in in_shape)
-        x_em_oversampled = xp.zeros(oversampled_shape, device=dev, dtype=xp.float32)
-        x_att_oversampled = xp.zeros(oversampled_shape, device=dev, dtype=xp.float32)
-        c0 = oversampled_shape[0] / 2
-        c1 = oversampled_shape[1] / 2
-        c2 = oversampled_shape[2] / 2
-        a = oversampled_shape[0] / 2.1  # semi-major axis
-        b = oversampled_shape[1] / 3.5  # semi-minor axis
-
-        rix = oversampled_shape[0] / 25
-        riy = oversampled_shape[1] / 25
-
-        y, x = xp.ogrid[: oversampled_shape[0], : oversampled_shape[1]]
-
-        outer_mask = ((x - c0) / a) ** 2 + ((y - c1) / b) ** 2 <= 1
-        inner_mask = ((x - c0) / rix) ** 2 + ((y - c1) / riy) ** 2 <= 1
-
-        for z in range(oversampled_shape[2]):
-            x_em_oversampled[:, :, z][outer_mask] = 1.0
-            x_em_oversampled[:, :, z][inner_mask] = 0.1
-
-            x_att_oversampled[:, :, z][outer_mask] = mu_value
+        if add_inner_cylinder:
+            x_em_oversampled[:, :, z][inner_mask] = 0.25
             x_att_oversampled[:, :, z][inner_mask] = mu_value / 3
 
-        # add a few spheres to the emission image
+    # add a few spheres to the emission image
 
+    if add_spheres:
         x, y, z = xp.ogrid[
             : oversampled_shape[0], : oversampled_shape[1], : oversampled_shape[2]
         ]
@@ -125,57 +108,54 @@ def pet_phantom(
             ) ** 2 <= 1
             x_em_oversampled[sp_mask2] = 0.25
 
-        # downsample to original grid size by averaging
-        x_em_oversampled = (
-            x_em_oversampled[::4, :, :]
-            + x_em_oversampled[1::4, :, :]
-            + x_em_oversampled[2::4, :, :]
-            + x_em_oversampled[3::4, :, :]
-        )
-        x_em_oversampled = (
-            x_em_oversampled[:, ::4, :]
-            + x_em_oversampled[:, 1::4, :]
-            + x_em_oversampled[:, 2::4, :]
-            + x_em_oversampled[:, 3::4, :]
-        )
-        x_em_oversampled = (
-            x_em_oversampled[:, :, ::4]
-            + x_em_oversampled[:, :, 1::4]
-            + x_em_oversampled[:, :, 2::4]
-            + x_em_oversampled[:, :, 3::4]
-        )
+    # downsample to original grid size by averaging
+    x_em_oversampled = (
+        x_em_oversampled[::4, :, :]
+        + x_em_oversampled[1::4, :, :]
+        + x_em_oversampled[2::4, :, :]
+        + x_em_oversampled[3::4, :, :]
+    )
+    x_em_oversampled = (
+        x_em_oversampled[:, ::4, :]
+        + x_em_oversampled[:, 1::4, :]
+        + x_em_oversampled[:, 2::4, :]
+        + x_em_oversampled[:, 3::4, :]
+    )
+    x_em_oversampled = (
+        x_em_oversampled[:, :, ::4]
+        + x_em_oversampled[:, :, 1::4]
+        + x_em_oversampled[:, :, 2::4]
+        + x_em_oversampled[:, :, 3::4]
+    )
 
-        x_att_oversampled = (
-            x_att_oversampled[::4, :, :]
-            + x_att_oversampled[1::4, :, :]
-            + x_att_oversampled[2::4, :, :]
-            + x_att_oversampled[3::4, :, :]
-        )
-        x_att_oversampled = (
-            x_att_oversampled[:, ::4, :]
-            + x_att_oversampled[:, 1::4, :]
-            + x_att_oversampled[:, 2::4, :]
-            + x_att_oversampled[:, 3::4, :]
-        )
-        x_att_oversampled = (
-            x_att_oversampled[:, :, ::4]
-            + x_att_oversampled[:, :, 1::4]
-            + x_att_oversampled[:, :, 2::4]
-            + x_att_oversampled[:, :, 3::4]
-        )
+    x_att_oversampled = (
+        x_att_oversampled[::4, :, :]
+        + x_att_oversampled[1::4, :, :]
+        + x_att_oversampled[2::4, :, :]
+        + x_att_oversampled[3::4, :, :]
+    )
+    x_att_oversampled = (
+        x_att_oversampled[:, ::4, :]
+        + x_att_oversampled[:, 1::4, :]
+        + x_att_oversampled[:, 2::4, :]
+        + x_att_oversampled[:, 3::4, :]
+    )
+    x_att_oversampled = (
+        x_att_oversampled[:, :, ::4]
+        + x_att_oversampled[:, :, 1::4]
+        + x_att_oversampled[:, :, 2::4]
+        + x_att_oversampled[:, :, 3::4]
+    )
 
-        x_em = x_em_oversampled.copy() / (oversampling_factor**3)
-        x_att = x_att_oversampled.copy() / (oversampling_factor**3)
+    x_em = x_em_oversampled.copy() / (oversampling_factor**3)
+    x_att = x_att_oversampled.copy() / (oversampling_factor**3)
 
-        x_em[:, :, :3] = 0
-        x_em[:, :, -3:] = 0
+    x_em[:, :, :3] = 0
+    x_em[:, :, -3:] = 0
 
-        # make the attenuation a bit wider in z (plastic wall)
-        x_att[:, :, :2] = 0
-        x_att[:, :, -2:] = 0
-
-    else:
-        raise ValueError("Invalid phantom type")
+    # make the attenuation a bit wider in z (plastic wall)
+    x_att[:, :, :2] = 0
+    x_att[:, :, -2:] = 0
 
     return x_em, x_att
 
@@ -183,7 +163,12 @@ def pet_phantom(
 if __name__ == "__main__":
     import numpy as np
 
-    a, b = pet_phantom((129, 129, 33), np, "cpu", type=1)
+    sh = (129, 129, 33)
+
+    e1, a1 = pet_phantom(sh, np, "cpu")
+    e2, a2 = pet_phantom(
+        sh, np, "cpu", add_spheres=True, add_inner_cylinder=False, r0=0.25, r1=0.25
+    )
 
     # import pymirc.viewer as pv
-    # vi = pv.ThreeAxisViewer([a, b])
+    # vi = pv.ThreeAxisViewer([e1, a1, e2, a2])
