@@ -532,6 +532,21 @@ ax[-1, 1].set_title("step size", fontsize="medium")
 ax[-1, 1].set_xlabel("epoch")
 ax[-1, 1].grid(ls=":")
 
+# add simulation parameters as text
+params = {key: value for key, value in vars(args).items() if key != "step_size_func"}
+params_text = "\n".join([f"{key}: {value}" for key, value in params.items()])
+
+ax[-1, -1].text(
+    0.5,
+    1.0,
+    params_text,
+    ha="center",
+    va="top",
+    transform=ax[-1, -1].transAxes,
+    fontsize="xx-small",
+)
+
+
 ax[-1, 2].set_axis_off()
 ax[-1, 3].set_axis_off()
 
