@@ -28,11 +28,11 @@ from sim_utils import (
     validate_stepsize_lambda_str,
     MLEMPreconditioner,
     HarmonicPreconditioner,
+    sanitize_filename,
 )
 
 from rdp import RDP
 from sim_phantoms import pet_phantom
-import re
 
 # choose a device (CPU or CUDA GPU)
 if "numpy" in xp.__name__:
@@ -41,11 +41,6 @@ if "numpy" in xp.__name__:
 elif "cupy" in xp.__name__:
     # using cupy, only cuda devices are possible
     dev = xp.cuda.Device(0)
-
-
-# %%
-def sanitize_filename(filename):
-    return re.sub(r"[^\w\-_\.]", "_", filename)
 
 
 def nrmse(vec_x, vec_y, mask, norm):
@@ -70,6 +65,7 @@ parser.add_argument("--precond_type", type=int, default=2, choices=[1, 2])
 parser.add_argument("--phantom_type", type=int, default=1, choices=[1, 2])
 parser.add_argument("--tof", action="store_true")
 parser.add_argument("--method", default="SVRG", choices=["SVRG", "SGD", "SAGA"])
+parser.add_argument("--precond_pre_filter_fwhm_mm", type=float, default=4.0)
 
 args = parser.parse_args()
 
@@ -122,6 +118,9 @@ phantom_type = args.phantom_type
 
 # stochastic gradient method
 method = args.method
+
+# pre-filter for preconditioner
+precond_pre_filter_fwhm_mm = args.precond_pre_filter_fwhm_mm
 
 # %%
 # random seed
@@ -326,29 +325,22 @@ adjoint_ones = pet_lin_op.adjoint(
     xp.ones(pet_lin_op.out_shape, device=dev, dtype=xp.float32)
 )
 
-# add a gentle Gaussian pre-filter to the preconditioner
-# otherwise we get very high values in slices that are close to the
-# edge of the FOV and contain a strong gradient in z (e.g. edge of the phantom)
-precond_pre_filter = parallelproj.GaussianFilterOperator(
-    img_shape, sigma=fwhm_data_mm / (2.35 * xp.asarray(voxel_size))
-)
+# add a gentle Gaussian pre-filter to the harmonic mean preconditioner
+if precond_pre_filter_fwhm_mm > 0:
+    precond_pre_filter_func = parallelproj.GaussianFilterOperator(
+        img_shape, sigma=precond_pre_filter_fwhm_mm / (2.35 * xp.asarray(voxel_size))
+    )
+else:
+    precond_pre_filter_func = None
 
 if precond_type == 1:
     diag_precond = MLEMPreconditioner(adjoint_ones)
 elif precond_type == 2:
-    diag_precond = HarmonicPreconditioner(adjoint_ones, prior=prior, factor=2.0)
-    diag_precond.filter_function = precond_pre_filter
+    diag_precond = HarmonicPreconditioner(
+        adjoint_ones, prior=prior, factor=2.0, filter_function=precond_pre_filter_func
+    )
 else:
     raise ValueError("invalid preconditioner version")
-
-###############################
-# %%
-# qq = diag_precond(x_init)
-# import pymirc.viewer as pv
-# vi = pv.ThreeAxisViewer(xp.asnumpy(qq))
-# breakpoint()
-###############################
-
 
 # %%
 # run (pre-conditioned) L-BFGS-B without subsets as reference
@@ -480,6 +472,8 @@ if cost_stochastic < cost_ref:
 # save the results
 res_dict = vars(copy(args))
 
+res_dict["scale_fac"] = scale_fac
+res_dict["beta"] = beta
 res_dict["cost_ref"] = cost_ref
 res_dict["cost_osem"] = cost_osem
 res_dict["cost_stochastic"] = cost_stochastic
@@ -487,10 +481,9 @@ res_dict["nrmse_stochastic"] = nrmse_stochastic
 res_dict["nrmse_osem"] = nrmse_osem
 res_dict["nrmse_init"] = nrmse_init
 
-
 res_file = (
     ref_file.parent
-    / f"{ref_file.stem}_ne_{num_epochs}_ns_{num_subsets}_m_{method}_pc__{precond_type}_{sanitize_filename(args.step_size_func)}.json"
+    / f"{ref_file.stem}_ne_{num_epochs}_ns_{num_subsets}_m_{method}_pc_{precond_type}__pf_{precond_pre_filter_fwhm_mm:.1f}_{sanitize_filename(args.step_size_func)}.json"
 )
 
 with open(res_file, "w", encoding="utf-8") as f:

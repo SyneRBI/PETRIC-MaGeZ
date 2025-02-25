@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Union, Callable, TYPE_CHECKING
 from types import ModuleType
 
+import re
 import abc
 import argparse
 import parallelproj
@@ -738,58 +739,41 @@ def validate_stepsize_lambda_str(func_str: str):
         raise argparse.ArgumentTypeError(f"Invalid lambda function: {e}")
 
 
-class DiagonalPreconditioner(abc.ABC):
-
-    def __init__(self):
-        self._filter_function = None
-
-    @abc.abstractmethod
-    def _call(self, x: Array) -> Array:
-        pass
-
-    @property
-    def filter_function(self) -> None | Callable[[Array], Array]:
-        return self._filter_function
-
-    @filter_function.setter
-    def filter_function(self, func: None | Callable[[Array], Array]):
-        self._filter_function = func
-
-    def __call__(self, x: Array) -> Array:
-
-        if self._filter_function is not None:
-            x_filt = self._filter_function(x)
-        else:
-            x_filt = x
-
-        return self._call(x_filt)
+def sanitize_filename(filename):
+    return re.sub(r"[^\w\-_\.]", "_", filename)
 
 
-class MLEMPreconditioner(DiagonalPreconditioner):
+class MLEMPreconditioner:
     def __init__(self, adjoint_ones: Array, delta_rel: float = 1e-4):
         self._adjoint_ones = adjoint_ones
         self._delta_rel = delta_rel
-        super().__init__()
 
-    def _call(self, x: Array) -> Array:
+    def __call__(self, x: Array) -> Array:
         return (x + self._delta_rel * x.max()) / self._adjoint_ones
 
 
-class HarmonicPreconditioner(DiagonalPreconditioner):
+class HarmonicPreconditioner:
     def __init__(
         self,
         adjoint_ones: Array,
         prior: SmoothFunctionWithDiagonalHessian,
         delta_rel: float = 1e-4,
         factor: float = 2.0,
+        filter_function: None | Callable[[Array], Array] = None,
     ):
         self._adjoint_ones = adjoint_ones
         self._delta_rel = delta_rel
         self._factor = factor
         self._prior = prior
-        super().__init__()
+        self._filter_function = filter_function
 
-    def _call(self, x: Array) -> Array:
+    def __call__(self, x: Array) -> Array:
+
+        if self._filter_function is not None:
+            x_sm = self._filter_function(x)
+        else:
+            x_sm = x
+
         return (x + self._delta_rel * x.max()) / (
-            self._adjoint_ones + self._factor * self._prior.diag_hessian(x) * x
+            self._adjoint_ones + self._factor * self._prior.diag_hessian(x_sm) * x
         )
