@@ -3,6 +3,12 @@
 # %%
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+if not str(Path("..").resolve()) in sys.path:
+    sys.path.insert(0, str(Path("..").resolve()))
+
 try:
     import array_api_compat.cupy as xp
 except ImportError:
@@ -15,7 +21,6 @@ import matplotlib.pyplot as plt
 
 from array_api_compat import to_device
 from scipy.optimize import fmin_l_bfgs_b
-from pathlib import Path
 from copy import copy
 
 import argparse
@@ -367,7 +372,7 @@ else:
     precond_lbfgs_np0 = xp.asnumpy(precond_lbfgs0).ravel()
 
     def precond_cf0(z):
-        return cost_function(z * precond_lbfgs_np0) - cost_osem
+        return cost_function(z * precond_lbfgs_np0)
 
     def precond_grad0(z):
         return cost_function.gradient(z * precond_lbfgs_np0) * precond_lbfgs_np0
@@ -395,7 +400,7 @@ else:
     precond_lbfgs_np1 = xp.asnumpy(precond_lbfgs1).ravel()
 
     def precond_cf1(z):
-        return cost_function(z * precond_lbfgs_np1) - cost_osem
+        return cost_function(z * precond_lbfgs_np1)
 
     def precond_grad1(z):
         return cost_function.gradient(z * precond_lbfgs_np1) * precond_lbfgs_np1
