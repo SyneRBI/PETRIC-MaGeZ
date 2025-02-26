@@ -45,6 +45,15 @@ fig2, ax2 = plt.subplots(
     sharey=True,
 )
 
+fig3, ax3 = plt.subplots(
+    nrows,
+    ncols,
+    figsize=(3 * ncols, 1 * nrows),
+    tight_layout=True,
+    sharex=True,
+    sharey=True,
+)
+
 for axx in ax.ravel():
     axx.axhline(1e-2, color="k")
 
@@ -58,10 +67,14 @@ for i, true_counts in enumerate(true_counts_list):
         )
 
         x_ref = np.load(ref_file)
-        sl = x_ref.shape[2] // 2
+        sl2 = x_ref.shape[2] // 2
+        sl0 = x_ref.shape[0] // 2
 
         ax2[i, j].imshow(
-            x_ref[..., sl], vmin=0, vmax=0.18 * true_counts / 1e7, cmap="Greys"
+            x_ref[..., sl2], vmin=0, vmax=0.18 * true_counts / 1e7, cmap="Greys"
+        )
+        ax3[i, j].imshow(
+            x_ref[sl0, ...].T, vmin=0, vmax=0.18 * true_counts / 1e7, cmap="Greys"
         )
 
         for im, method in enumerate(methods):
@@ -100,13 +113,18 @@ for i, axx in enumerate(ax[0, :]):
     axx.set_title(f"beta = {beta_rels[i]:.1f}", fontsize="medium")
 for i, axx in enumerate(ax2[0, :]):
     axx.set_title(f"beta = {beta_rels[i]:.1f}", fontsize="medium")
+for i, axx in enumerate(ax3[0, :]):
+    axx.set_title(f"beta = {beta_rels[i]:.1f}", fontsize="medium")
 
 for i, axx in enumerate(ax[:, 0]):
     axx.set_ylabel(f"NRMSE true counts: {true_counts_list[i]:.1E}")
 for i, axx in enumerate(ax2[:, 0]):
     axx.set_ylabel(f"true counts: {true_counts_list[i]:.1E}")
+for i, axx in enumerate(ax3[:, 0]):
+    axx.set_ylabel(f"{true_counts_list[i]:.1E}")
 
 ax[0, 0].legend(fontsize="x-small", ncol=2, loc="lower right")
 
 fig.show()
 fig2.show()
+fig3.show()
