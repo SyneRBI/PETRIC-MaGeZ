@@ -9,7 +9,6 @@ except ImportError:
     import array_api_compat.numpy as xp
 
 import json
-import math
 import parallelproj
 import array_api_compat.numpy as np
 import matplotlib.pyplot as plt
@@ -58,8 +57,8 @@ parser.add_argument("--precond_type", type=int, default=2, choices=[1, 2])
 parser.add_argument("--phantom_type", type=int, default=1, choices=[1, 2])
 parser.add_argument("--tof", action="store_true")
 parser.add_argument("--method", default="SVRG", choices=["SVRG", "SGD", "SAGA"])
+parser.add_argument("--eta", type=float, default=0.0)
 parser.add_argument("--init_step_size", type=float, default=1.0)
-parser.add_argument("--step_size_decay_rate", type=float, default=0.0)
 
 args = parser.parse_args()
 
@@ -71,7 +70,8 @@ seed = int(args.seed)
 # true counts, reasonable range
 true_counts = int(args.true_counts)
 # regularization weight, reasonable range: 5e-5 * (true_counts / 1e6) is medium regularization
-beta = args.beta_rel * (2e-4) * (true_counts / 3e7)
+beta_rel = args.beta_rel
+beta = beta_rel * (2e-4) * (true_counts / 3e7)
 # RDP gamma parameter
 gamma_rdp = 2.0
 # type of preconditioner: 1 MLEM, 2: Harmonic
@@ -111,10 +111,9 @@ phantom_type = args.phantom_type
 method = args.method
 
 # step size parameters
+eta = args.eta
 init_step_size = args.init_step_size
-step_size_decay_rate = args.step_size_decay_rate
-
-step_size_func = lambda u: init_step_size * math.exp(-step_size_decay_rate * u)
+step_size_func = lambda k: init_step_size / (1 + eta * k / num_subsets)
 
 # %%
 # random seed
@@ -350,7 +349,7 @@ sim_path.mkdir(exist_ok=True)
 
 ref_file = (
     sim_path
-    / f"rdp_t_{true_counts:.2E}_b_{beta:.2E}_g_{gamma_rdp:.2E}_n_{num_iter_bfgs_ref}_nr_{num_rings}_tof_{tof}_cf_{contam_fraction}_s_{seed}_ph_{phantom_type}.npy"
+    / f"rdp_t_{true_counts:.1E}_b_{beta_rel:.2f}_g_{gamma_rdp:.2f}_n_{num_iter_bfgs_ref}_nr_{num_rings}_tof_{tof}_cf_{contam_fraction}_s_{seed}_ph_{phantom_type}.npy"
 )
 
 if ref_file.exists():
@@ -462,12 +461,12 @@ cost_stochastic = cost_function(stochastic_alg.x)
 print(f"cost ref                                  .: {cost_ref:.8E}")
 print(f"cost stochastic                           .: {cost_stochastic:.8E}")
 print(
-    f"(cost_stochastic-cost_ref)/abs(cost_ref) .: {(cost_stochastic-cost_ref)/abs(cost_ref)}"
+    f"(cost_stochastic-cost_ref)/abs(cost_ref)  .: {(cost_stochastic-cost_ref)/abs(cost_ref)}"
 )
 
 if cost_stochastic < cost_ref:
-    raise RuntimeError(
-        "stochastic cost is lower than reference cost. Find better reference."
+    print(
+        "WARNING: stochastic cost is lower than reference cost. Find better reference."
     )
 
 # %%
@@ -476,6 +475,7 @@ res_dict = vars(copy(args))
 
 res_dict["scale_fac"] = scale_fac
 res_dict["beta"] = beta
+res_dict["beta_rel"] = beta_rel
 res_dict["cost_ref"] = cost_ref
 res_dict["cost_osem"] = cost_osem
 res_dict["cost_stochastic"] = cost_stochastic
@@ -483,11 +483,11 @@ res_dict["nrmse_stochastic"] = nrmse_stochastic
 res_dict["nrmse_osem"] = nrmse_osem
 res_dict["nrmse_init"] = nrmse_init
 res_dict["init_step_size"] = init_step_size
-res_dict["step_size_decay_rate"] = step_size_decay_rate
+res_dict["eta"] = eta
 
 res_file = (
     ref_file.parent
-    / f"{ref_file.stem}_ne_{num_epochs}_ns_{num_subsets}_m_{method}_pc_{precond_type}_ssi_{init_step_size:.2E}_ssdr_{step_size_decay_rate:.2E}.json"
+    / f"{ref_file.stem}_ne_{num_epochs}_ns_{num_subsets}_m_{method}_pc_{precond_type}_s0_{init_step_size:.2E}_eta_{eta:.2E}.json"
 )
 
 with open(res_file, "w", encoding="utf-8") as f:
@@ -574,6 +574,7 @@ params_text += (
     f"\n(cost_stoch-cost_ref)/cost_ref: {(cost_stochastic-cost_ref)/abs(cost_ref):.2E}"
 )
 
+color = "red" if cost_stochastic < cost_ref else "black"
 ax[-1, -1].text(
     0.5,
     1.0,
@@ -582,6 +583,7 @@ ax[-1, -1].text(
     va="top",
     transform=ax[-1, -1].transAxes,
     fontsize="xx-small",
+    color=color,
 )
 
 

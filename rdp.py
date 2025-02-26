@@ -275,7 +275,7 @@ class RDP(SmoothFunctionWithDiagonalHessian):
         if self._weights is not None:
             tmp *= self._weights
 
-        return 0.5 * float(self.xp.sum(tmp))
+        return 0.5 * float(self.xp.sum(tmp, dtype=self.xp.float64))
 
     def _gradient(self, x: Array) -> Array:
         d, s = neighbor_difference_and_sum(x, self.xp, padding=self._padding)

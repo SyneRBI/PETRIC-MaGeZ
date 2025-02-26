@@ -3,9 +3,7 @@ from __future__ import annotations
 from typing import Union, Callable, TYPE_CHECKING
 from types import ModuleType
 
-import re
 import abc
-import argparse
 import parallelproj
 import array_api_compat.numpy as np
 from array_api_compat import get_namespace, device
@@ -147,7 +145,9 @@ class SubsetNegPoissonLogLWithPrior(SmoothSubsetFunction):
 
         exp = self._subset_fwd_operators[subset](x) + self._contamination[sl]
 
-        res = float(self.xp.sum(exp - self._data[sl] * self.xp.log(exp)))
+        res = float(
+            self.xp.sum(exp - self._data[sl] * self.xp.log(exp), dtype=self.xp.float64)
+        )
 
         if self._prior is not None:
             res += self._prior(x) / self._num_subsets
