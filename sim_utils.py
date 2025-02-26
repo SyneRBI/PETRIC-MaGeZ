@@ -708,41 +708,6 @@ class ProxSVRG:
         self._subset_number_list = tmp.tolist()
 
 
-def validate_stepsize_lambda_str(func_str: str):
-    """
-    Validates that the provided function string is a lambda that takes an int and returns a float.
-    """
-    try:
-        # Evaluate the function string safely
-        func = eval(
-            func_str, {"__builtins__": {}}
-        )  # Disable built-in functions for security
-
-        # Check if it is a function
-        if not callable(func):
-            raise ValueError("Provided input is not callable.")
-
-        # Check if it is a lambda (lambdas have "<lambda>" in their name)
-        if func.__name__ != "<lambda>":
-            raise ValueError("Only lambda functions are allowed.")
-
-        # Check the function behavior (type validation)
-        test_input = 42  # Example integer input
-        result = func(test_input)
-
-        if not isinstance(result, float):
-            raise TypeError("Lambda function must return a float.")
-
-        return func  # Return the validated lambda function
-
-    except Exception as e:
-        raise argparse.ArgumentTypeError(f"Invalid lambda function: {e}")
-
-
-def sanitize_filename(filename):
-    return re.sub(r"[^\w\-_\.]", "_", filename)
-
-
 class MLEMPreconditioner:
     def __init__(self, adjoint_ones: Array, delta_rel: float = 1e-4):
         self._adjoint_ones = adjoint_ones

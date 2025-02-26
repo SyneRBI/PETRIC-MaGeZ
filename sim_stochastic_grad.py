@@ -9,6 +9,7 @@ except ImportError:
     import array_api_compat.numpy as xp
 
 import json
+import math
 import parallelproj
 import array_api_compat.numpy as np
 import matplotlib.pyplot as plt
@@ -25,10 +26,8 @@ from sim_utils import (
     split_fwd_model,
     OSEM,
     StochasticGradientDescent,
-    validate_stepsize_lambda_str,
     MLEMPreconditioner,
     HarmonicPreconditioner,
-    sanitize_filename,
 )
 
 from rdp import RDP
@@ -51,21 +50,16 @@ def nrmse(vec_x, vec_y, mask, norm):
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--seed", type=int, default=1)
-parser.add_argument("--true_counts", type=int, default=int(3e7))
+parser.add_argument("--true_counts", type=float, default=int(1e8))
 parser.add_argument("--beta_rel", type=float, default=1.0)
-parser.add_argument(
-    "--step_size_func",
-    type=str,
-    help="Lambda function mapping update [int] to stepsize [float] (e.g., 'lambda x: float(x**2)')",
-    default="lambda x: 1.0",
-)
 parser.add_argument("--num_epochs", type=int, default=20)
 parser.add_argument("--num_subsets", type=int, default=27)
 parser.add_argument("--precond_type", type=int, default=2, choices=[1, 2])
 parser.add_argument("--phantom_type", type=int, default=1, choices=[1, 2])
 parser.add_argument("--tof", action="store_true")
 parser.add_argument("--method", default="SVRG", choices=["SVRG", "SGD", "SAGA"])
-parser.add_argument("--precond_pre_filter_fwhm_mm", type=float, default=4.0)
+parser.add_argument("--init_step_size", type=float, default=1.0)
+parser.add_argument("--step_size_decay_rate", type=float, default=0.0)
 
 args = parser.parse_args()
 
@@ -75,7 +69,7 @@ args = parser.parse_args()
 seed = int(args.seed)
 
 # true counts, reasonable range
-true_counts = args.true_counts
+true_counts = int(args.true_counts)
 # regularization weight, reasonable range: 5e-5 * (true_counts / 1e6) is medium regularization
 beta = args.beta_rel * (2e-4) * (true_counts / 3e7)
 # RDP gamma parameter
@@ -110,17 +104,17 @@ track_cost = True
 num_epochs_osem = 1
 num_subsets_osem = 27
 
-# step size update function
-step_size_func = validate_stepsize_lambda_str(args.step_size_func)
-
 # phantom type (int)
 phantom_type = args.phantom_type
 
 # stochastic gradient method
 method = args.method
 
-# pre-filter for preconditioner
-precond_pre_filter_fwhm_mm = args.precond_pre_filter_fwhm_mm
+# step size parameters
+init_step_size = args.init_step_size
+step_size_decay_rate = args.step_size_decay_rate
+
+step_size_func = lambda u: init_step_size * math.exp(-step_size_decay_rate * u)
 
 # %%
 # random seed
@@ -182,7 +176,7 @@ print("setting up phantom")
 
 if phantom_type == 1:
     x_true, x_att = pet_phantom(img_shape, xp, dev, mu_value=0.01)
-if phantom_type == 2:
+elif phantom_type == 2:
     x_true, x_att = pet_phantom(
         img_shape,
         xp,
@@ -193,6 +187,8 @@ if phantom_type == 2:
         r0=0.25,
         r1=0.25,
     )
+else:
+    raise ValueError("invalid phantom type")
 
 # %%
 # calculate the attenuation sinogram
@@ -281,7 +277,6 @@ data_fidelity = SubsetNegPoissonLogLWithPrior(
 x0 = xp.ones(pet_lin_op.in_shape, device=dev, dtype=xp.float32)
 osem_alg = OSEM(data_fidelity)
 x_osem = osem_alg.run(x0, num_epochs_osem)
-
 x_init = x_osem.copy()
 
 del pet_subset_lin_op_seq_osem
@@ -317,6 +312,9 @@ cost_function = SubsetNegPoissonLogLWithPrior(
     data, pet_subset_lin_op_seq, contamination, subset_slices, prior=prior
 )
 
+# calculate cost of quick OSEM reconstruction
+cost_osem = cost_function(x_osem)
+
 # %%
 # setup the preconditioner for stochastic gradient algorithms
 print("setting up preconditioner")
@@ -325,19 +323,21 @@ adjoint_ones = pet_lin_op.adjoint(
     xp.ones(pet_lin_op.out_shape, device=dev, dtype=xp.float32)
 )
 
-# add a gentle Gaussian pre-filter to the harmonic mean preconditioner
-if precond_pre_filter_fwhm_mm > 0:
-    precond_pre_filter_func = parallelproj.GaussianFilterOperator(
-        img_shape, sigma=precond_pre_filter_fwhm_mm / (2.35 * xp.asarray(voxel_size))
-    )
-else:
-    precond_pre_filter_func = None
-
 if precond_type == 1:
     diag_precond = MLEMPreconditioner(adjoint_ones)
 elif precond_type == 2:
+    # add a 4mm FWHM Gaussian filter before calc. the diag Hess of the prior
+    precond_pre_filter_func = parallelproj.GaussianFilterOperator(
+        img_shape, sigma=4.0 / (2.35 * xp.asarray(voxel_size))
+    )
+
     diag_precond = HarmonicPreconditioner(
         adjoint_ones, prior=prior, factor=2.0, filter_function=precond_pre_filter_func
+    )
+elif precond_type == 3:
+    # same as precond_type 2 but without pre-filter
+    diag_precond = HarmonicPreconditioner(
+        adjoint_ones, prior=prior, factor=2.0, filter_function=None
     )
 else:
     raise ValueError("invalid preconditioner version")
@@ -368,7 +368,7 @@ else:
     precond_lbfgs_np0 = xp.asnumpy(precond_lbfgs0).ravel()
 
     def precond_cf0(z):
-        return cost_function(z * precond_lbfgs_np0)
+        return cost_function(z * precond_lbfgs_np0) - cost_osem
 
     def precond_grad0(z):
         return cost_function.gradient(z * precond_lbfgs_np0) * precond_lbfgs_np0
@@ -396,7 +396,7 @@ else:
     precond_lbfgs_np1 = xp.asnumpy(precond_lbfgs1).ravel()
 
     def precond_cf1(z):
-        return cost_function(z * precond_lbfgs_np1)
+        return cost_function(z * precond_lbfgs_np1) - cost_osem
 
     def precond_grad1(z):
         return cost_function.gradient(z * precond_lbfgs_np1) * precond_lbfgs_np1
@@ -420,7 +420,6 @@ else:
 
 
 # %%
-cost_osem = cost_function(x_osem)
 cost_ref = cost_function(x_ref)
 x_osem_scale = float(xp.mean(x_init))
 
@@ -451,7 +450,7 @@ stochastic_alg = StochasticGradientDescent(
     prior,
     x_init,
     method=method,
-    diag_precond_func=diag_precond.__call__,
+    diag_precond_func=diag_precond,
     verbose=False,
     step_size_func=step_size_func,
 )
@@ -460,8 +459,11 @@ nrmse_stochastic = stochastic_alg.run(num_epochs * num_subsets, callback=nrmse_c
 # %%
 cost_stochastic = cost_function(stochastic_alg.x)
 
-print(f"cost ref   : {cost_ref:.8E}")
-print(f"cost stochastic .: {cost_stochastic:.8E}")
+print(f"cost ref                                  .: {cost_ref:.8E}")
+print(f"cost stochastic                           .: {cost_stochastic:.8E}")
+print(
+    f"(cost_stochastic-cost_ref)/abs(cost_ref) .: {(cost_stochastic-cost_ref)/abs(cost_ref)}"
+)
 
 if cost_stochastic < cost_ref:
     raise RuntimeError(
@@ -480,10 +482,12 @@ res_dict["cost_stochastic"] = cost_stochastic
 res_dict["nrmse_stochastic"] = nrmse_stochastic
 res_dict["nrmse_osem"] = nrmse_osem
 res_dict["nrmse_init"] = nrmse_init
+res_dict["init_step_size"] = init_step_size
+res_dict["step_size_decay_rate"] = step_size_decay_rate
 
 res_file = (
     ref_file.parent
-    / f"{ref_file.stem}_ne_{num_epochs}_ns_{num_subsets}_m_{method}_pc_{precond_type}__pf_{precond_pre_filter_fwhm_mm:.1f}_{sanitize_filename(args.step_size_func)}.json"
+    / f"{ref_file.stem}_ne_{num_epochs}_ns_{num_subsets}_m_{method}_pc_{precond_type}_ssi_{init_step_size:.2E}_ssdr_{step_size_decay_rate:.2E}.json"
 )
 
 with open(res_file, "w", encoding="utf-8") as f:
