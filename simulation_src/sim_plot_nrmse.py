@@ -1,10 +1,12 @@
 import json
 import argparse
 import matplotlib.pyplot as plt
+from matplotlib import ticker
 import numpy as np
 
 from pathlib import Path
 from typing import List
+from matplotlib.backends.backend_pdf import PdfPages
 
 
 def create_figures(
@@ -121,7 +123,8 @@ def create_figures(
                         )
 
     for axx in ax.ravel():
-        axx.grid(True, ls=":")
+        axx.xaxis.set_minor_locator(ticker.MultipleLocator(10))
+        axx.grid(True, which="both", ls=":")
         axx.set_xlim(xmin, xmax)
         axx.set_ylim(ymin, ymax)
 
@@ -145,11 +148,11 @@ def create_figures(
     ax[0, 0].legend(fontsize="x-small", ncol=2, loc="lower right")
 
     fig.suptitle(
-        f"num_subsets = {num_subsets}, eta = {eta:.2f}, s0 = {init_step_size:.2f}, TOF = {tof}"
+        f"{sim_path_str} num_subsets = {num_subsets}, eta = {eta:.2f}, s0 = {init_step_size:.2f}, TOF = {tof}"
     )
 
-    fig2.suptitle(f"TOF = {tof}")
-    fig3.suptitle(f"TOF = {tof}")
+    fig2.suptitle(f"{sim_path_str} TOF = {tof}")
+    fig3.suptitle(f"{sim_path_str} TOF = {tof}")
 
     return fig, fig2, fig3
 
@@ -284,3 +287,12 @@ if __name__ == "__main__":
     fig.show()
     fig2.show()
     fig3.show()
+
+    output_pdf_path = (
+        Path(sim_path_str)
+        / f"00_ns_{num_subsets}_tof_{tof}_s0_{init_step_size}_eta_{eta}.pdf"
+    )
+    with PdfPages(output_pdf_path) as pdf:
+        pdf.savefig(fig)
+        pdf.savefig(fig2)
+        pdf.savefig(fig3)
