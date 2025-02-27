@@ -101,9 +101,11 @@ def create_figures(
 
                     # plot the nrmse_stochastic values
                     if ip == 0:
-                        ls = ":"
+                        ls = (0, (1, 1))
+                        lw = 1.5
                     else:
                         ls = "-"
+                        lw = 1.5
 
                     if show_complete_epochs_only:
                         ax[i, j].semilogy(
@@ -111,6 +113,7 @@ def create_figures(
                             nrmse_stochastic[::num_subsets],
                             color=plt.cm.tab10(im),
                             linestyle=ls,
+                            linewidth=lw,
                             label=f"{method} pc={precond_type}",
                         )
                     else:
@@ -119,12 +122,13 @@ def create_figures(
                             nrmse_stochastic,
                             color=plt.cm.tab10(im),
                             linestyle=ls,
+                            linewidth=lw,
                             label=f"{method} pc={precond_type}",
                         )
 
     for axx in ax.ravel():
         axx.xaxis.set_minor_locator(ticker.MultipleLocator(10))
-        axx.grid(True, which="both", ls=":")
+        axx.grid(True, which="both", ls="-", lw=0.1)
         axx.set_xlim(xmin, xmax)
         axx.set_ylim(ymin, ymax)
 
