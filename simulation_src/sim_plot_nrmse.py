@@ -6,225 +6,284 @@ import numpy as np
 from pathlib import Path
 from typing import List
 
-parser = argparse.ArgumentParser(
-    description="Plot NRMSE for different methods and parameters."
-)
 
-parser.add_argument(
-    "--methods", nargs="+", default=["SGD", "SAGA", "SVRG"], help="List of methods."
-)
-parser.add_argument(
-    "--true_counts_list",
-    nargs="+",
-    type=float,
-    default=[1e7, 1e8],
-    help="List of true counts.",
-)
-parser.add_argument(
-    "--beta_rels",
-    nargs="+",
-    type=float,
-    default=[1.0, 4.0, 16.0],
-    help="List of beta relative values.",
-)
-parser.add_argument(
-    "--precond_types",
-    nargs="+",
-    type=int,
-    default=[1, 2],
-    help="List of preconditioner types.",
-)
-parser.add_argument(
-    "--sim_path",
-    type=str,
-    default="sim_results_250227",
-    help="Path to simulation results.",
-)
-parser.add_argument("--gamma_rdp", type=float, default=2, help="Gamma RDP value.")
-parser.add_argument(
-    "--num_iter_bfgs_ref", type=int, default=500, help="Number of BFGS iterations."
-)
-parser.add_argument("--num_rings", type=int, default=17, help="Number of rings.")
-parser.add_argument("--tof", type=bool, default=True, help="Time of flight flag.")
-parser.add_argument(
-    "--contam_fraction", type=float, default=0.5, help="Contamination fraction."
-)
-parser.add_argument("--seed", type=int, default=1, help="Random seed.")
-parser.add_argument("--phantom_type", type=int, default=1, help="Phantom type.")
-parser.add_argument("--num_epochs", type=int, default=100, help="Number of epochs.")
-parser.add_argument("--num_subsets", type=int, default=27, help="Number of subsets.")
-parser.add_argument(
-    "--init_step_size", type=float, default=1.0, help="Initial step size."
-)
-parser.add_argument("--eta", type=float, default=0.0, help="Eta value.")
-parser.add_argument(
-    "--show_complete_epochs_only",
-    type=bool,
-    default=True,
-    help="Show complete epochs only flag.",
-)
-parser.add_argument("--xmin", type=int, default=0, help="Minimum x-axis value.")
-parser.add_argument("--xmax", type=int, default=None, help="Maximum x-axis value.")
-parser.add_argument("--ymin", type=float, default=1e-5, help="Minimum y-axis value.")
-parser.add_argument("--ymax", type=float, default=1e0, help="Maximum y-axis value.")
+def create_figures(
+    methods: List[str],
+    true_counts_list: List[float],
+    beta_rels: List[float],
+    precond_types: List[int],
+    sim_path: Path,
+    gamma_rdp: float,
+    num_iter_bfgs_ref: int,
+    num_rings: int,
+    tof: bool,
+    contam_fraction: float,
+    seed: int,
+    phantom_type: int,
+    num_epochs: int,
+    num_subsets: int,
+    init_step_size: float,
+    eta: float,
+    show_complete_epochs_only: bool,
+    xmin: int,
+    xmax: int,
+    ymin: float,
+    ymax: float,
+):
+    nrows = len(true_counts_list)
+    ncols = len(beta_rels)
 
-args = parser.parse_args()
+    fig, ax = plt.subplots(
+        nrows,
+        ncols,
+        figsize=(3 * ncols, 3 * nrows),
+        tight_layout=True,
+        sharex=True,
+        sharey=True,
+    )
 
-# %%
-methods: List[str] = args.methods
-true_counts_list: List[float] = args.true_counts_list
-beta_rels: List[float] = args.beta_rels
-precond_types: List[int] = args.precond_types
+    fig2, ax2 = plt.subplots(
+        nrows,
+        ncols,
+        figsize=(3 * ncols, 3 * nrows),
+        tight_layout=True,
+        sharex=True,
+        sharey=True,
+    )
 
-sim_path: Path = Path(args.sim_path)
+    fig3, ax3 = plt.subplots(
+        nrows,
+        ncols,
+        figsize=(3 * ncols, 1 * nrows),
+        tight_layout=True,
+        sharex=True,
+        sharey=True,
+    )
 
-gamma_rdp: float = args.gamma_rdp
-num_iter_bfgs_ref: int = args.num_iter_bfgs_ref
-num_rings: int = args.num_rings
-tof: bool = args.tof
-contam_fraction: float = args.contam_fraction
-seed: int = args.seed
-phantom_type: int = args.phantom_type
+    for axx in ax.ravel():
+        axx.axhline(1e-2, color="k")
 
-num_epochs: int = args.num_epochs
-num_subsets: int = args.num_subsets
+    for i, true_counts in enumerate(true_counts_list):
+        for j, beta_rel in enumerate(beta_rels):
+            beta = beta_rel * (2e-4) * (true_counts / 3e7)
 
-init_step_size: float = args.init_step_size
-eta: float = args.eta
+            ref_file = (
+                sim_path
+                / f"rdp_t_{true_counts:.1E}_b_{beta_rel:.2f}_g_{gamma_rdp:.2f}_n_{num_iter_bfgs_ref}_nr_{num_rings}_tof_{tof}_cf_{contam_fraction}_s_{seed}_ph_{phantom_type}.npy"
+            )
 
-show_complete_epochs_only: bool = args.show_complete_epochs_only
+            x_ref = np.load(ref_file)
+            sl2 = x_ref.shape[2] // 2
+            sl0 = x_ref.shape[0] // 2
 
-xmin: int = args.xmin
+            ax2[i, j].imshow(
+                x_ref[..., sl2], vmin=0, vmax=0.18 * true_counts / 1e7, cmap="Greys"
+            )
+            ax3[i, j].imshow(
+                x_ref[sl0, ...].T, vmin=0, vmax=0.18 * true_counts / 1e7, cmap="Greys"
+            )
 
-ymin: float = args.ymin
-ymax: float = args.ymax
-
-if args.xmax is None:
-    xmax: int = num_epochs
-else:
-    xmax: int = args.xmax
-
-# %%
-nrows = len(true_counts_list)
-ncols = len(beta_rels)
-
-fig, ax = plt.subplots(
-    nrows,
-    ncols,
-    figsize=(3 * ncols, 3 * nrows),
-    tight_layout=True,
-    sharex=True,
-    sharey=True,
-)
-
-fig2, ax2 = plt.subplots(
-    nrows,
-    ncols,
-    figsize=(3 * ncols, 3 * nrows),
-    tight_layout=True,
-    sharex=True,
-    sharey=True,
-)
-
-fig3, ax3 = plt.subplots(
-    nrows,
-    ncols,
-    figsize=(3 * ncols, 1 * nrows),
-    tight_layout=True,
-    sharex=True,
-    sharey=True,
-)
-
-for axx in ax.ravel():
-    axx.axhline(1e-2, color="k")
-
-for i, true_counts in enumerate(true_counts_list):
-    for j, beta_rel in enumerate(beta_rels):
-        beta = beta_rel * (2e-4) * (true_counts / 3e7)
-
-        ref_file = (
-            sim_path
-            / f"rdp_t_{true_counts:.1E}_b_{beta_rel:.2f}_g_{gamma_rdp:.2f}_n_{num_iter_bfgs_ref}_nr_{num_rings}_tof_{tof}_cf_{contam_fraction}_s_{seed}_ph_{phantom_type}.npy"
-        )
-
-        x_ref = np.load(ref_file)
-        sl2 = x_ref.shape[2] // 2
-        sl0 = x_ref.shape[0] // 2
-
-        ax2[i, j].imshow(
-            x_ref[..., sl2], vmin=0, vmax=0.18 * true_counts / 1e7, cmap="Greys"
-        )
-        ax3[i, j].imshow(
-            x_ref[sl0, ...].T, vmin=0, vmax=0.18 * true_counts / 1e7, cmap="Greys"
-        )
-
-        for im, method in enumerate(methods):
-            for ip, precond_type in enumerate(precond_types):
-                res_file = (
-                    ref_file.parent
-                    / f"{ref_file.stem}_ne_{num_epochs}_ns_{num_subsets}_m_{method}_pc_{precond_type}_s0_{init_step_size:.2E}_eta_{eta:.2E}.json"
-                )
-
-                # read nrmse_stochastic from the JSON file
-                with open(res_file, "r") as f:
-                    content = json.load(f)
-                    nrmse_stochastic = content["nrmse_stochastic"]
-
-                # plot the nrmse_stochastic values
-                if ip == 0:
-                    ls = ":"
-                else:
-                    ls = "-"
-
-                if show_complete_epochs_only:
-                    ax[i, j].semilogy(
-                        np.arange(num_epochs),
-                        nrmse_stochastic[::num_subsets],
-                        color=plt.cm.tab10(im),
-                        linestyle=ls,
-                        label=f"{method} pc={precond_type}",
-                    )
-                else:
-                    ax[i, j].semilogy(
-                        np.arange(num_epochs * num_subsets) / num_subsets,
-                        nrmse_stochastic,
-                        color=plt.cm.tab10(im),
-                        linestyle=ls,
-                        label=f"{method} pc={precond_type}",
+            for im, method in enumerate(methods):
+                for ip, precond_type in enumerate(precond_types):
+                    res_file = (
+                        ref_file.parent
+                        / f"{ref_file.stem}_ne_{num_epochs}_ns_{num_subsets}_m_{method}_pc_{precond_type}_s0_{init_step_size:.2E}_eta_{eta:.2E}.json"
                     )
 
+                    # read nrmse_stochastic from the JSON file
+                    with open(res_file, "r", encoding="utf-8") as f:
+                        content = json.load(f)
+                        nrmse_stochastic = content["nrmse_stochastic"]
 
-for axx in ax.ravel():
-    axx.grid(True, ls=":")
-    axx.set_xlim(0, xmax)
-    axx.set_ylim(ymin, ymax)
+                    # plot the nrmse_stochastic values
+                    if ip == 0:
+                        ls = ":"
+                    else:
+                        ls = "-"
 
-for axx in ax[-1, :]:
-    axx.set_xlabel("epoch")
+                    if show_complete_epochs_only:
+                        ax[i, j].semilogy(
+                            np.arange(num_epochs),
+                            nrmse_stochastic[::num_subsets],
+                            color=plt.cm.tab10(im),
+                            linestyle=ls,
+                            label=f"{method} pc={precond_type}",
+                        )
+                    else:
+                        ax[i, j].semilogy(
+                            np.arange(num_epochs * num_subsets) / num_subsets,
+                            nrmse_stochastic,
+                            color=plt.cm.tab10(im),
+                            linestyle=ls,
+                            label=f"{method} pc={precond_type}",
+                        )
 
-for i, axx in enumerate(ax[0, :]):
-    axx.set_title(f"beta = {beta_rels[i]:.1f}", fontsize="medium")
-for i, axx in enumerate(ax2[0, :]):
-    axx.set_title(f"beta = {beta_rels[i]:.1f}", fontsize="medium")
-for i, axx in enumerate(ax3[0, :]):
-    axx.set_title(f"beta = {beta_rels[i]:.1f}", fontsize="medium")
+    for axx in ax.ravel():
+        axx.grid(True, ls=":")
+        axx.set_xlim(xmin, xmax)
+        axx.set_ylim(ymin, ymax)
 
-for i, axx in enumerate(ax[:, 0]):
-    axx.set_ylabel(f"NRMSE true counts: {true_counts_list[i]:.1E}")
-for i, axx in enumerate(ax2[:, 0]):
-    axx.set_ylabel(f"true counts: {true_counts_list[i]:.1E}")
-for i, axx in enumerate(ax3[:, 0]):
-    axx.set_ylabel(f"{true_counts_list[i]:.1E}")
+    for axx in ax[-1, :]:
+        axx.set_xlabel("epoch")
 
-ax[0, 0].legend(fontsize="x-small", ncol=2, loc="lower right")
+    for i, axx in enumerate(ax[0, :]):
+        axx.set_title(f"beta = {beta_rels[i]:.1f}", fontsize="medium")
+    for i, axx in enumerate(ax2[0, :]):
+        axx.set_title(f"beta = {beta_rels[i]:.1f}", fontsize="medium")
+    for i, axx in enumerate(ax3[0, :]):
+        axx.set_title(f"beta = {beta_rels[i]:.1f}", fontsize="medium")
 
-fig.suptitle(
-    f"num_subsets = {num_subsets}, eta = {eta:.2f}, s0 = {init_step_size:.2f}, TOF = {tof}"
-)
+    for i, axx in enumerate(ax[:, 0]):
+        axx.set_ylabel(f"NRMSE true counts: {true_counts_list[i]:.1E}")
+    for i, axx in enumerate(ax2[:, 0]):
+        axx.set_ylabel(f"true counts: {true_counts_list[i]:.1E}")
+    for i, axx in enumerate(ax3[:, 0]):
+        axx.set_ylabel(f"{true_counts_list[i]:.1E}")
 
-fig2.suptitle(f"TOF = {tof}")
-fig3.suptitle(f"TOF = {tof}")
+    ax[0, 0].legend(fontsize="x-small", ncol=2, loc="lower right")
 
-fig.show()
-fig2.show()
-fig3.show()
+    fig.suptitle(
+        f"num_subsets = {num_subsets}, eta = {eta:.2f}, s0 = {init_step_size:.2f}, TOF = {tof}"
+    )
+
+    fig2.suptitle(f"TOF = {tof}")
+    fig3.suptitle(f"TOF = {tof}")
+
+    return fig, fig2, fig3
+
+
+# %%
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="Plot NRMSE for different methods and parameters."
+    )
+
+    parser.add_argument(
+        "--methods", nargs="+", default=["SGD", "SAGA", "SVRG"], help="List of methods."
+    )
+    parser.add_argument(
+        "--true_counts_list",
+        nargs="+",
+        type=float,
+        default=[1e7, 1e8],
+        help="List of true counts.",
+    )
+    parser.add_argument(
+        "--beta_rels",
+        nargs="+",
+        type=float,
+        default=[1.0, 4.0, 16.0],
+        help="List of beta relative values.",
+    )
+    parser.add_argument(
+        "--precond_types",
+        nargs="+",
+        type=int,
+        default=[1, 2],
+        help="List of preconditioner types.",
+    )
+    parser.add_argument(
+        "--sim_path",
+        type=str,
+        default="sim_results_250227",
+        help="Path to simulation results.",
+    )
+    parser.add_argument("--gamma_rdp", type=float, default=2, help="Gamma RDP value.")
+    parser.add_argument(
+        "--num_iter_bfgs_ref", type=int, default=500, help="Number of BFGS iterations."
+    )
+    parser.add_argument("--num_rings", type=int, default=17, help="Number of rings.")
+    parser.add_argument("--tof", action="store_true", help="TOF flag")
+    parser.add_argument(
+        "--contam_fraction", type=float, default=0.5, help="Contamination fraction."
+    )
+    parser.add_argument("--seed", type=int, default=1, help="Random seed.")
+    parser.add_argument("--phantom_type", type=int, default=1, help="Phantom type.")
+    parser.add_argument("--num_epochs", type=int, default=100, help="Number of epochs.")
+    parser.add_argument(
+        "--num_subsets", type=int, default=27, help="Number of subsets."
+    )
+    parser.add_argument(
+        "--init_step_size", type=float, default=1.0, help="Initial step size."
+    )
+    parser.add_argument("--eta", type=float, default=0.0, help="Eta value.")
+    parser.add_argument(
+        "--show_every_update",
+        action="store_true",
+        help="Show NRMSE for every update instead of complete epochs",
+    )
+    parser.add_argument("--xmin", type=int, default=0, help="Minimum x-axis value.")
+    parser.add_argument("--xmax", type=int, default=None, help="Maximum x-axis value.")
+    parser.add_argument(
+        "--ymin", type=float, default=1e-5, help="Minimum y-axis value."
+    )
+    parser.add_argument("--ymax", type=float, default=1e0, help="Maximum y-axis value.")
+
+    args = parser.parse_args()
+
+    # %%
+    methods: List[str] = args.methods
+    true_counts_list: List[float] = args.true_counts_list
+    beta_rels: List[float] = args.beta_rels
+    precond_types: List[int] = args.precond_types
+
+    sim_path: Path = Path(args.sim_path)
+
+    gamma_rdp: float = args.gamma_rdp
+    num_iter_bfgs_ref: int = args.num_iter_bfgs_ref
+    num_rings: int = args.num_rings
+    tof: bool = args.tof
+    contam_fraction: float = args.contam_fraction
+    seed: int = args.seed
+    phantom_type: int = args.phantom_type
+
+    num_epochs: int = args.num_epochs
+    num_subsets: int = args.num_subsets
+
+    init_step_size: float = args.init_step_size
+    eta: float = args.eta
+
+    show_complete_epochs_only: bool = not args.show_every_update
+
+    xmin: int = args.xmin
+
+    ymin: float = args.ymin
+    ymax: float = args.ymax
+
+    if args.xmax is None:
+        xmax: int = num_epochs
+    else:
+        xmax: int = args.xmax
+
+    fig, fig2, fig3 = create_figures(
+        methods,
+        true_counts_list,
+        beta_rels,
+        precond_types,
+        sim_path,
+        gamma_rdp,
+        num_iter_bfgs_ref,
+        num_rings,
+        tof,
+        contam_fraction,
+        seed,
+        phantom_type,
+        num_epochs,
+        num_subsets,
+        init_step_size,
+        eta,
+        show_complete_epochs_only,
+        xmin,
+        xmax,
+        ymin,
+        ymax,
+    )
+
+    # fig.savefig(sim_path / "nrmse_plot.png")
+    # fig2.savefig(sim_path / "reconstructed_slices.png")
+    # fig3.savefig(sim_path / "reconstructed_slices_transverse.png")
+    # plt.show()
+
+    fig.show()
+    fig2.show()
+    fig3.show()
