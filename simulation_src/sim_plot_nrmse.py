@@ -8,28 +8,30 @@ from typing import List
 
 
 def create_figures(
-    methods: List[str],
-    true_counts_list: List[float],
-    beta_rels: List[float],
-    precond_types: List[int],
-    sim_path: Path,
-    gamma_rdp: float,
-    num_iter_bfgs_ref: int,
-    num_rings: int,
-    tof: bool,
-    contam_fraction: float,
-    seed: int,
-    phantom_type: int,
-    num_epochs: int,
-    num_subsets: int,
-    init_step_size: float,
-    eta: float,
-    show_complete_epochs_only: bool,
-    xmin: int,
-    xmax: int,
-    ymin: float,
-    ymax: float,
+    sim_path_str: str,
+    methods: List[str] = ["SGD", "SAGA", "SVRG"],
+    true_counts_list: List[float] = [1e7, 1e8],
+    beta_rels: List[float] = [1.0, 4.0, 16.0],
+    precond_types: List[int] = [1, 2],
+    gamma_rdp: float = 2,
+    num_iter_bfgs_ref: int = 500,
+    num_rings: int = 17,
+    tof: bool = False,
+    contam_fraction: float = 0.5,
+    seed: int = 1,
+    phantom_type: int = 1,
+    num_epochs: int = 100,
+    num_subsets: int = 27,
+    init_step_size: float = 1.0,
+    eta: float = 0.0,
+    show_complete_epochs_only: bool = True,
+    xmin: int = 0,
+    xmax: int | None = None,
+    ymin: float = 1e-5,
+    ymax: float = 1e0,
 ):
+    sim_path = Path(sim_path_str)
+
     nrows = len(true_counts_list)
     ncols = len(beta_rels)
 
@@ -159,6 +161,12 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
+        "sim_path",
+        type=str,
+        help="Path to simulation results.",
+    )
+
+    parser.add_argument(
         "--methods", nargs="+", default=["SGD", "SAGA", "SVRG"], help="List of methods."
     )
     parser.add_argument(
@@ -181,12 +189,6 @@ if __name__ == "__main__":
         type=int,
         default=[1, 2],
         help="List of preconditioner types.",
-    )
-    parser.add_argument(
-        "--sim_path",
-        type=str,
-        default="sim_results_250227",
-        help="Path to simulation results.",
     )
     parser.add_argument("--gamma_rdp", type=float, default=2, help="Gamma RDP value.")
     parser.add_argument(
@@ -227,7 +229,7 @@ if __name__ == "__main__":
     beta_rels: List[float] = args.beta_rels
     precond_types: List[int] = args.precond_types
 
-    sim_path: Path = Path(args.sim_path)
+    sim_path_str: str = args.sim_path
 
     gamma_rdp: float = args.gamma_rdp
     num_iter_bfgs_ref: int = args.num_iter_bfgs_ref
@@ -256,11 +258,11 @@ if __name__ == "__main__":
         xmax: int = args.xmax
 
     fig, fig2, fig3 = create_figures(
+        sim_path_str,
         methods,
         true_counts_list,
         beta_rels,
         precond_types,
-        sim_path,
         gamma_rdp,
         num_iter_bfgs_ref,
         num_rings,
@@ -278,11 +280,6 @@ if __name__ == "__main__":
         ymin,
         ymax,
     )
-
-    # fig.savefig(sim_path / "nrmse_plot.png")
-    # fig2.savefig(sim_path / "reconstructed_slices.png")
-    # fig3.savefig(sim_path / "reconstructed_slices_transverse.png")
-    # plt.show()
 
     fig.show()
     fig2.show()
