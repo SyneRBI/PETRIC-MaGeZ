@@ -11,7 +11,7 @@ from matplotlib.backends.backend_pdf import PdfPages
 
 def create_figures(
     sim_path_str: str,
-    methods: List[str] = ["SGD", "SAGA", "SVRG"],
+    methods_eta: List[tuple[str, float]] = [("SGD", 0.1), ("SAGA", 0.0), ("SVRG", 0.0)],
     true_counts_list: List[float] = [1e7, 1e8],
     beta_rels: List[float] = [1.0, 4.0, 16.0],
     precond_types: List[int] = [1, 2],
@@ -25,9 +25,7 @@ def create_figures(
     num_epochs: int = 100,
     num_subsets: int = 27,
     init_step_size: float = 1.0,
-    eta: float = 0.0,
-    show_complete_epochs_only: bool = True,
-    xmin: int = 0,
+    xmin: int = 1,
     xmax: int | None = None,
     ymin: float = 1e-5,
     ymax: float = 1e0,
@@ -87,7 +85,9 @@ def create_figures(
                 x_ref[sl0, ...].T, vmin=0, vmax=0.18 * true_counts / 1e7, cmap="Greys"
             )
 
-            for im, method in enumerate(methods):
+            # loop over pairs of method and eta stored in methods_eta
+
+            for im, (method, eta) in enumerate(methods_eta):
                 for ip, precond_type in enumerate(precond_types):
                     res_file = (
                         ref_file.parent
@@ -122,7 +122,7 @@ def create_figures(
                         color=plt.cm.tab10(im),
                         linestyle=ls,
                         linewidth=lw,
-                        label=f"{method} pc={precond_type}",
+                        label=f"{method} $\\eta$={eta:.1f} pc={precond_type}",
                     )
 
     for axx in ax.ravel():
@@ -135,11 +135,11 @@ def create_figures(
         axx.set_xlabel("data passes")
 
     for i, axx in enumerate(ax[0, :]):
-        axx.set_title(f"beta = {beta_rels[i]:.1f}", fontsize="medium")
+        axx.set_title(f"$\\beta$ = {beta_rels[i]:.1f}", fontsize="medium")
     for i, axx in enumerate(ax2[0, :]):
-        axx.set_title(f"beta = {beta_rels[i]:.1f}", fontsize="medium")
+        axx.set_title(f"$\\beta$ = {beta_rels[i]:.1f}", fontsize="medium")
     for i, axx in enumerate(ax3[0, :]):
-        axx.set_title(f"beta = {beta_rels[i]:.1f}", fontsize="medium")
+        axx.set_title(f"$\\beta$ = {beta_rels[i]:.1f}", fontsize="medium")
 
     for i, axx in enumerate(ax[:, 0]):
         axx.set_ylabel(f"NRMSE true counts: {true_counts_list[i]:.1E}")
@@ -151,7 +151,7 @@ def create_figures(
     ax[0, 0].legend(fontsize="x-small", ncol=2, loc="lower right")
 
     fig.suptitle(
-        f"{sim_path_str} num_subsets = {num_subsets}, eta = {eta:.2f}, s0 = {init_step_size:.2f}, TOF = {tof}"
+        f"{sim_path_str} num_subsets = {num_subsets}, s0 = {init_step_size:.2f}, TOF = {tof}"
     )
 
     fig2.suptitle(f"{sim_path_str} TOF = {tof}")
@@ -172,9 +172,9 @@ if __name__ == "__main__":
         help="Path to simulation results.",
     )
 
-    parser.add_argument(
-        "--methods", nargs="+", default=["SGD", "SAGA", "SVRG"], help="List of methods."
-    )
+    # parser.add_argument(
+    #    "--methods", nargs="+", default=["SGD", "SAGA", "SVRG"], help="List of methods."
+    # )
     parser.add_argument(
         "--true_counts_list",
         nargs="+",
@@ -214,13 +214,13 @@ if __name__ == "__main__":
     parser.add_argument(
         "--init_step_size", type=float, default=1.0, help="Initial step size."
     )
-    parser.add_argument("--eta", type=float, default=0.0, help="Eta value.")
+    # parser.add_argument("--eta", type=float, default=0.0, help="Eta value.")
     parser.add_argument(
         "--show_every_update",
         action="store_true",
         help="Show NRMSE for every update instead of complete epochs",
     )
-    parser.add_argument("--xmin", type=int, default=0, help="Minimum x-axis value.")
+    parser.add_argument("--xmin", type=int, default=1, help="Minimum x-axis value.")
     parser.add_argument("--xmax", type=int, default=None, help="Maximum x-axis value.")
     parser.add_argument(
         "--ymin", type=float, default=1e-5, help="Minimum y-axis value."
@@ -230,7 +230,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # %%
-    methods: List[str] = args.methods
+    # methods: List[str] = args.methods
     true_counts_list: List[float] = args.true_counts_list
     beta_rels: List[float] = args.beta_rels
     precond_types: List[int] = args.precond_types
@@ -249,7 +249,7 @@ if __name__ == "__main__":
     num_subsets: int = args.num_subsets
 
     init_step_size: float = args.init_step_size
-    eta: float = args.eta
+    # eta: float = args.eta
 
     show_complete_epochs_only: bool = not args.show_every_update
 
@@ -265,7 +265,7 @@ if __name__ == "__main__":
 
     fig, fig2, fig3 = create_figures(
         sim_path_str,
-        methods,
+        [("SGD", 0.1), ("SAGA", 0.0), ("SVRG", 0.0)],
         true_counts_list,
         beta_rels,
         precond_types,
@@ -279,8 +279,6 @@ if __name__ == "__main__":
         num_epochs,
         num_subsets,
         init_step_size,
-        eta,
-        show_complete_epochs_only,
         xmin,
         xmax,
         ymin,
@@ -292,8 +290,7 @@ if __name__ == "__main__":
     fig3.show()
 
     output_pdf_path = (
-        Path(sim_path_str)
-        / f"00_ns_{num_subsets}_tof_{tof}_s0_{init_step_size}_eta_{eta}.pdf"
+        Path(sim_path_str) / f"00_ns_{num_subsets}_tof_{tof}_s0_{init_step_size}.pdf"
     )
     with PdfPages(output_pdf_path) as pdf:
         pdf.savefig(fig)
