@@ -148,7 +148,7 @@ def create_figures(
     for i, axx in enumerate(ax3[:, 0]):
         axx.set_ylabel(f"{true_counts_list[i]:.1E}")
 
-    ax[0, 0].legend(fontsize="x-small", ncol=2, loc="lower right")
+    ax[0, 0].legend(fontsize="xx-small", ncol=2, loc="lower right")
 
     fig.suptitle(
         f"{sim_path_str} num_subsets = {num_subsets}, s0 = {init_step_size:.2f}, TOF = {tof}"
@@ -172,9 +172,15 @@ if __name__ == "__main__":
         help="Path to simulation results.",
     )
 
-    # parser.add_argument(
-    #    "--methods", nargs="+", default=["SGD", "SAGA", "SVRG"], help="List of methods."
-    # )
+    parser.add_argument(
+        "--methods_eta",
+        type=lambda s: [
+            (method_eta.split(":")[0], float(method_eta.split(":")[1]))
+            for method_eta in s.split(",")
+        ],
+        default=[("SGD", 0.1), ("SAGA", 0.0), ("SVRG", 0.0)],
+        help='List of methods and eta values in the format "method:eta,method:eta,...".',
+    )
     parser.add_argument(
         "--true_counts_list",
         nargs="+",
@@ -214,7 +220,6 @@ if __name__ == "__main__":
     parser.add_argument(
         "--init_step_size", type=float, default=1.0, help="Initial step size."
     )
-    # parser.add_argument("--eta", type=float, default=0.0, help="Eta value.")
     parser.add_argument(
         "--show_every_update",
         action="store_true",
@@ -230,12 +235,12 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # %%
-    # methods: List[str] = args.methods
+    sim_path_str: str = args.sim_path
+    methods_eta: List[tuple[str, float]] = args.methods_eta
+
     true_counts_list: List[float] = args.true_counts_list
     beta_rels: List[float] = args.beta_rels
     precond_types: List[int] = args.precond_types
-
-    sim_path_str: str = args.sim_path
 
     gamma_rdp: float = args.gamma_rdp
     num_iter_bfgs_ref: int = args.num_iter_bfgs_ref
@@ -249,7 +254,6 @@ if __name__ == "__main__":
     num_subsets: int = args.num_subsets
 
     init_step_size: float = args.init_step_size
-    # eta: float = args.eta
 
     show_complete_epochs_only: bool = not args.show_every_update
 
@@ -264,25 +268,25 @@ if __name__ == "__main__":
         xmax: int = args.xmax
 
     fig, fig2, fig3 = create_figures(
-        sim_path_str,
-        [("SGD", 0.1), ("SAGA", 0.0), ("SVRG", 0.0)],
-        true_counts_list,
-        beta_rels,
-        precond_types,
-        gamma_rdp,
-        num_iter_bfgs_ref,
-        num_rings,
-        tof,
-        contam_fraction,
-        seed,
-        phantom_type,
-        num_epochs,
-        num_subsets,
-        init_step_size,
-        xmin,
-        xmax,
-        ymin,
-        ymax,
+        sim_path_str=sim_path_str,
+        methods_eta=methods_eta,
+        true_counts_list=true_counts_list,
+        beta_rels=beta_rels,
+        precond_types=precond_types,
+        gamma_rdp=gamma_rdp,
+        num_iter_bfgs_ref=num_iter_bfgs_ref,
+        num_rings=num_rings,
+        tof=tof,
+        contam_fraction=contam_fraction,
+        seed=seed,
+        phantom_type=phantom_type,
+        num_epochs=num_epochs,
+        num_subsets=num_subsets,
+        init_step_size=init_step_size,
+        xmin=xmin,
+        xmax=xmax,
+        ymin=ymin,
+        ymax=ymax,
     )
 
     fig.show()
