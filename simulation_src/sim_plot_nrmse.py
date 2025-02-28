@@ -107,33 +107,32 @@ def create_figures(
                         ls = "-"
                         lw = 1.5
 
-                    if show_complete_epochs_only:
-                        ax[i, j].semilogy(
-                            np.arange(num_epochs),
-                            nrmse_stochastic[::num_subsets],
-                            color=plt.cm.tab10(im),
-                            linestyle=ls,
-                            linewidth=lw,
-                            label=f"{method} pc={precond_type}",
-                        )
-                    else:
-                        ax[i, j].semilogy(
-                            np.arange(num_epochs * num_subsets) / num_subsets,
-                            nrmse_stochastic,
-                            color=plt.cm.tab10(im),
-                            linestyle=ls,
-                            linewidth=lw,
-                            label=f"{method} pc={precond_type}",
-                        )
+                    # the NRMSE callback is called after each update
+                    # we select only the values at the end of each epoch
+                    data_passes = np.arange(1, num_epochs + 1)
+
+                    if method == "SVRG":
+                        # the extra data passes that we perform in SVRG
+                        # where every 2nd epoch is an extra full pass is needed
+                        data_passes += np.repeat(data_passes, 2)[:num_epochs]
+
+                    ax[i, j].loglog(
+                        data_passes,
+                        nrmse_stochastic[(num_subsets - 1) :: num_subsets],
+                        color=plt.cm.tab10(im),
+                        linestyle=ls,
+                        linewidth=lw,
+                        label=f"{method} pc={precond_type}",
+                    )
 
     for axx in ax.ravel():
-        axx.xaxis.set_minor_locator(ticker.MultipleLocator(10))
+        # axx.xaxis.set_minor_locator(ticker.MultipleLocator(10))
         axx.grid(True, which="both", ls="-", lw=0.1)
         axx.set_xlim(xmin, xmax)
         axx.set_ylim(ymin, ymax)
 
     for axx in ax[-1, :]:
-        axx.set_xlabel("epoch")
+        axx.set_xlabel("data passes")
 
     for i, axx in enumerate(ax[0, :]):
         axx.set_title(f"beta = {beta_rels[i]:.1f}", fontsize="medium")
