@@ -11,7 +11,11 @@ from matplotlib.backends.backend_pdf import PdfPages
 
 def create_figures(
     sim_path_str: str,
-    methods_eta: List[tuple[str, float]] = [("SGD", 0.1), ("SAGA", 0.0), ("SVRG", 0.0)],
+    methods_eta_ss: List[tuple[str, float, int]] = [
+        ("SGD", 0.1, 27),
+        ("SAGA", 0.0, 27),
+        ("SVRG", 0.0, 27),
+    ],
     true_counts_list: List[float] = [1e7, 1e8],
     beta_rels: List[float] = [1.0, 4.0, 16.0],
     precond_types: List[int] = [1, 2],
@@ -23,7 +27,6 @@ def create_figures(
     seed: int = 1,
     phantom_type: int = 1,
     num_epochs: int = 100,
-    num_subsets: int = 27,
     init_step_size: float = 1.0,
     xmin: int = 1,
     xmax: int | None = None,
@@ -87,7 +90,7 @@ def create_figures(
 
             # loop over pairs of method and eta stored in methods_eta
 
-            for im, (method, eta) in enumerate(methods_eta):
+            for im, (method, eta, num_subsets) in enumerate(methods_eta_ss):
                 for ip, precond_type in enumerate(precond_types):
                     res_file = (
                         ref_file.parent
@@ -122,7 +125,7 @@ def create_figures(
                         color=plt.cm.tab10(im),
                         linestyle=ls,
                         linewidth=lw,
-                        label=f"{method} $\\eta$={eta:.1f} pc={precond_type}",
+                        label=f"{method} $\\eta$={eta:.1f} pc={precond_type} ns={num_subsets}",
                     )
 
     for axx in ax.ravel():
@@ -150,9 +153,7 @@ def create_figures(
 
     ax[0, 0].legend(fontsize="xx-small", ncol=2, loc="lower right")
 
-    fig.suptitle(
-        f"{sim_path_str} num_subsets = {num_subsets}, s0 = {init_step_size:.2f}, TOF = {tof}"
-    )
+    fig.suptitle(f"{sim_path_str}, s0 = {init_step_size:.2f}, TOF = {tof}")
 
     fig2.suptitle(f"{sim_path_str} TOF = {tof}")
     fig3.suptitle(f"{sim_path_str} TOF = {tof}")
@@ -173,13 +174,17 @@ if __name__ == "__main__":
     )
 
     parser.add_argument(
-        "--methods_eta",
+        "--methods_eta_ss",
         type=lambda s: [
-            (method_eta.split(":")[0], float(method_eta.split(":")[1]))
+            (
+                method_eta.split(":")[0],
+                float(method_eta.split(":")[1]),
+                int(method_eta.split(":")[2]),
+            )
             for method_eta in s.split(",")
         ],
-        default=[("SGD", 0.1), ("SAGA", 0.0), ("SVRG", 0.0)],
-        help='List of methods and eta values in the format "method:eta,method:eta,...".',
+        default=[("SGD", 0.1, 27), ("SAGA", 0.0, 27), ("SVRG", 0.0, 27)],
+        help='List of methods and eta values in the format "method:eta:num_ss,method:eta:num_ss,...".',
     )
     parser.add_argument(
         "--true_counts_list",
@@ -215,9 +220,6 @@ if __name__ == "__main__":
     parser.add_argument("--phantom_type", type=int, default=1, help="Phantom type.")
     parser.add_argument("--num_epochs", type=int, default=100, help="Number of epochs.")
     parser.add_argument(
-        "--num_subsets", type=int, default=27, help="Number of subsets."
-    )
-    parser.add_argument(
         "--init_step_size", type=float, default=1.0, help="Initial step size."
     )
     parser.add_argument(
@@ -236,7 +238,7 @@ if __name__ == "__main__":
 
     # %%
     sim_path_str: str = args.sim_path
-    methods_eta: List[tuple[str, float]] = args.methods_eta
+    methods_eta_ss: List[tuple[str, float, int]] = args.methods_eta_ss
 
     true_counts_list: List[float] = args.true_counts_list
     beta_rels: List[float] = args.beta_rels
@@ -251,7 +253,6 @@ if __name__ == "__main__":
     phantom_type: int = args.phantom_type
 
     num_epochs: int = args.num_epochs
-    num_subsets: int = args.num_subsets
 
     init_step_size: float = args.init_step_size
 
@@ -269,7 +270,7 @@ if __name__ == "__main__":
 
     fig, fig2, fig3 = create_figures(
         sim_path_str=sim_path_str,
-        methods_eta=methods_eta,
+        methods_eta_ss=methods_eta_ss,
         true_counts_list=true_counts_list,
         beta_rels=beta_rels,
         precond_types=precond_types,
@@ -281,7 +282,6 @@ if __name__ == "__main__":
         seed=seed,
         phantom_type=phantom_type,
         num_epochs=num_epochs,
-        num_subsets=num_subsets,
         init_step_size=init_step_size,
         xmin=xmin,
         xmax=xmax,
@@ -293,9 +293,7 @@ if __name__ == "__main__":
     fig2.show()
     fig3.show()
 
-    output_pdf_path = (
-        Path(sim_path_str) / f"00_ns_{num_subsets}_tof_{tof}_s0_{init_step_size}.pdf"
-    )
+    output_pdf_path = Path(sim_path_str) / f"00_tof_{tof}_s0_{init_step_size}.pdf"
     with PdfPages(output_pdf_path) as pdf:
         pdf.savefig(fig)
         pdf.savefig(fig2)
