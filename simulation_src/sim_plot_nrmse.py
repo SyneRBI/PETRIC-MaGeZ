@@ -125,7 +125,7 @@ def create_figures(
                         color=plt.cm.tab10(im),
                         linestyle=ls,
                         linewidth=lw,
-                        label=f"{method} $\\eta$={eta:.1f} pc={precond_type} ns={num_subsets}",
+                        label=f"{method} $\\eta$={eta:.2f} pc={precond_type} ns={num_subsets}",
                     )
 
     for axx in ax.ravel():
