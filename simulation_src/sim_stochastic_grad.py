@@ -64,6 +64,9 @@ parser.add_argument("--tof", action="store_true")
 parser.add_argument("--method", default="SVRG", choices=["SVRG", "SGD", "SAGA"])
 parser.add_argument("--eta", type=float, default=0.0)
 parser.add_argument("--init_step_size", type=float, default=1.0)
+parser.add_argument("--precond_update_epochs", type=int, default=None, nargs="+")
+parser.add_argument("--suffix", type=str, default="")
+
 
 args = parser.parse_args()
 
@@ -119,6 +122,9 @@ method = args.method
 eta = args.eta
 init_step_size = args.init_step_size
 step_size_func = lambda k: init_step_size / (1 + eta * k / num_subsets)
+
+precond_update_epochs = args.precond_update_epochs
+suffix = args.suffix
 
 # %%
 # random seed
@@ -457,6 +463,7 @@ stochastic_alg = StochasticGradientDescent(
     diag_precond_func=diag_precond,
     verbose=False,
     step_size_func=step_size_func,
+    precond_update_epochs=precond_update_epochs,
 )
 nrmse_stochastic = stochastic_alg.run(num_epochs * num_subsets, callback=nrmse_callback)
 
@@ -492,7 +499,7 @@ res_dict["eta"] = eta
 
 res_file = (
     ref_file.parent
-    / f"{ref_file.stem}_ne_{num_epochs}_ns_{num_subsets}_m_{method}_pc_{precond_type}_s0_{init_step_size:.2E}_eta_{eta:.2E}.json"
+    / f"{ref_file.stem}_ne_{num_epochs}_ns_{num_subsets}_m_{method}_pc_{precond_type}_s0_{init_step_size:.2E}_eta_{eta:.2E}{suffix}.json"
 )
 
 with open(res_file, "w", encoding="utf-8") as f:
