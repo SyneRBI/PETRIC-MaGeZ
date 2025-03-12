@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from typing import Union, Callable, TYPE_CHECKING
 from types import ModuleType
+from collections.abc import Generator
+from time import time
+from tqdm import tqdm
 
 import abc
 import parallelproj
@@ -281,16 +284,13 @@ class StochasticGradientDescent:
         prior: SmoothFunction,
         x_init: Array,
         diag_precond_func: Callable[[Array], Array],
+        subset_generator: Generator[int, None, None],
         method: str = "SVRG",
         step_size_func: Callable[[int], float] = lambda z: 1.0,
         complete_gradient_epochs: None | list[int] = None,
         precond_update_epochs: None | list[int] = None,
         verbose: bool = False,
-        seed: int = 1,
     ):
-
-        np.random.seed(seed)
-
         if method not in ["SVRG", "SGD", "SAGA"]:
             raise ValueError("Unknown optimization method")
 
@@ -342,6 +342,10 @@ class StochasticGradientDescent:
         self._diag_precond = self._diag_precond_func(self._x)
         self._step_size = 1.0
 
+        self._subset_generator = subset_generator
+
+        self._t0 = time()
+
     @property
     def epoch(self) -> int:
         return self._update // self._num_subsets
@@ -384,9 +388,7 @@ class StochasticGradientDescent:
             self._diag_precond = self._diag_precond_func(self._x)
 
         # choose the subset to update
-        if self._subset_number_list == []:
-            self.create_subset_number_list()
-        self._subset = self._subset_number_list.pop()
+        self._subset = next(self._subset_generator)
         if self._verbose:
             print(f" {self._update}, {self._subset}, subset gradient update")
 
@@ -449,9 +451,9 @@ class StochasticGradientDescent:
 
         callback_res = []
 
-        for _ in range(num_updates):
+        for _ in tqdm(range(num_updates)):
             if callback is not None:
-                callback_res.append(callback(self._x))
+                callback_res.append([callback(self._x), time() - self._t0])
             self.update()
 
         return callback_res
@@ -742,3 +744,24 @@ class HarmonicPreconditioner:
         return (x + self._delta_rel * x.max()) / (
             self._adjoint_ones + self._factor * self._prior.diag_hessian(x_sm) * x
         )
+
+
+def subset_generator_without_replacement(
+    num_subsets: int, seed: int
+) -> Generator[int, None, None]:
+    """subset generator without replacement - every subset is yielded once before repeating"""
+    indices = np.arange(num_subsets)  # Create an array of subset indices
+    rng = np.random.default_rng(seed)  # NumPy random generator with optional seed
+    while True:
+        rng.shuffle(indices)  # Shuffle the indices in-place
+        yield from indices  # Yield each index one by one
+
+
+def subset_generator_with_replacement(
+    num_subsets: int, seed: int
+) -> Generator[int, None, None]:
+    """subset generator with replacement"""
+    indices = np.arange(num_subsets)  # Create an array of subset indices
+    rng = np.random.default_rng(seed)  # NumPy random generator with optional seed
+    while True:
+        yield rng.choice(indices)  # Yield a random index with replacement

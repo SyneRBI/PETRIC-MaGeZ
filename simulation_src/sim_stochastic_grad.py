@@ -32,6 +32,8 @@ from sim_utils import (
     StochasticGradientDescent,
     MLEMPreconditioner,
     HarmonicPreconditioner,
+    subset_generator_with_replacement,
+    subset_generator_without_replacement,
 )
 
 from rdp import RDP
@@ -54,6 +56,8 @@ def nrmse(vec_x, vec_y, mask, norm):
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--seed", type=int, default=1)
+parser.add_argument("--subset_seed", type=int, default=1)
+parser.add_argument("--subset_sampling_method", default="wor", choices=["wor", "wr"])
 parser.add_argument("--true_counts", type=float, default=int(1e8))
 parser.add_argument("--beta_rel", type=float, default=1.0)
 parser.add_argument("--num_epochs", type=int, default=20)
@@ -74,6 +78,8 @@ args = parser.parse_args()
 # input parameters
 
 seed = int(args.seed)
+subset_seed = int(args.subset_seed)
+subset_sampling_method = args.subset_sampling_method
 
 # true counts, reasonable range
 true_counts = int(args.true_counts)
@@ -438,13 +444,14 @@ print(cost_ref)
 
 # %%
 # define NRMSE callback
-# NRMSE = RMSE where true image > 0 divided by the background signal (scale_fac)
-nrmse_callback = lambda x: nrmse(x, x_ref, x_true > 0, norm=scale_fac)
+def nrmse_callback(x):
+    """calculate NRMSE and time since start"""
+    return nrmse(x, x_ref, x_true > 0, norm=scale_fac)
+
 
 # %%
 nrmse_osem = nrmse_callback(x_osem)
 nrmse_init = nrmse_callback(x_init)
-
 
 # %%
 # run stochastic gradient descent
@@ -453,19 +460,34 @@ subset_neglogL = SubsetNegPoissonLogLWithPrior(
     data, pet_subset_lin_op_seq, contamination, subset_slices, prior=None
 )
 
+# setup subset sampling generator
+if subset_sampling_method == "wor":
+    subset_generator = subset_generator_without_replacement(num_subsets, subset_seed)
+elif subset_sampling_method == "wr":
+    subset_generator = subset_generator_with_replacement(num_subsets, subset_seed)
+else:
+    raise ValueError("invalid subset sampling method")
+
 
 print(f"running stochastic gradient descent {method}")
 stochastic_alg = StochasticGradientDescent(
     subset_neglogL,
     prior,
     x_init,
-    method=method,
     diag_precond_func=diag_precond,
+    subset_generator=subset_generator,
+    method=method,
     verbose=False,
     step_size_func=step_size_func,
     precond_update_epochs=precond_update_epochs,
 )
-nrmse_stochastic = stochastic_alg.run(num_epochs * num_subsets, callback=nrmse_callback)
+
+callback_res_stochastic = stochastic_alg.run(
+    num_epochs * num_subsets, callback=nrmse_callback
+)
+
+nrmse_stochastic = [x[0] for x in callback_res_stochastic]
+walltime_stochastic = [x[1] for x in callback_res_stochastic]
 
 # %%
 cost_stochastic = cost_function(stochastic_alg.x)
@@ -487,19 +509,17 @@ res_dict = vars(copy(args))
 
 res_dict["scale_fac"] = scale_fac
 res_dict["beta"] = beta
-res_dict["beta_rel"] = beta_rel
 res_dict["cost_ref"] = cost_ref
 res_dict["cost_osem"] = cost_osem
 res_dict["cost_stochastic"] = cost_stochastic
 res_dict["nrmse_stochastic"] = nrmse_stochastic
+res_dict["walltime_stochastic"] = walltime_stochastic
 res_dict["nrmse_osem"] = nrmse_osem
 res_dict["nrmse_init"] = nrmse_init
-res_dict["init_step_size"] = init_step_size
-res_dict["eta"] = eta
 
 res_file = (
     ref_file.parent
-    / f"{ref_file.stem}_ne_{num_epochs}_ns_{num_subsets}_m_{method}_pc_{precond_type}_s0_{init_step_size:.2E}_eta_{eta:.2E}{suffix}.json"
+    / f"{ref_file.stem}_ne_{num_epochs}_ns_{num_subsets}_m_{method}_pc_{precond_type}_s0_{init_step_size:.2E}_eta_{eta:.2E}_ss_{subset_seed}_ssm_{subset_sampling_method}{suffix}.json"
 )
 
 with open(res_file, "w", encoding="utf-8") as f:
