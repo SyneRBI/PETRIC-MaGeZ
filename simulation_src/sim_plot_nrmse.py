@@ -1,7 +1,6 @@
 import json
 import argparse
 import matplotlib.pyplot as plt
-from matplotlib import ticker
 import numpy as np
 
 from pathlib import Path
@@ -11,10 +10,10 @@ from matplotlib.backends.backend_pdf import PdfPages
 
 def create_figures(
     sim_path_str: str,
-    methods_eta_ss: List[tuple[str, float, int]] = [
-        ("SGD", 0.1, 27),
-        ("SAGA", 0.0, 27),
-        ("SVRG", 0.0, 27),
+    methods_eta_ss: List[tuple[str, float, int, float, int, str]] = [
+        ("SGD", 0.1, 27, 1.0, 1, "wor"),
+        ("SAGA", 0.0, 27, 1.0, 1, "wor"),
+        ("SVRG", 0.0, 27, 1.0, 1, "wor"),
     ],
     true_counts_list: List[float] = [1e7, 1e8],
     beta_rels: List[float] = [1.0, 4.0, 16.0],
@@ -27,11 +26,11 @@ def create_figures(
     seed: int = 1,
     phantom_type: int = 1,
     num_epochs: int = 100,
-    init_step_size: float = 1.0,
     xmin: int = 1,
     xmax: int | None = None,
     ymin: float = 1e-5,
     ymax: float = 1e0,
+    xaxis: str = "walltime",
 ):
     sim_path = Path(sim_path_str)
 
@@ -45,6 +44,7 @@ def create_figures(
         tight_layout=True,
         sharex=True,
         sharey=True,
+        squeeze=False,
     )
 
     fig2, ax2 = plt.subplots(
@@ -54,6 +54,7 @@ def create_figures(
         tight_layout=True,
         sharex=True,
         sharey=True,
+        squeeze=False,
     )
 
     fig3, ax3 = plt.subplots(
@@ -63,6 +64,7 @@ def create_figures(
         tight_layout=True,
         sharex=True,
         sharey=True,
+        squeeze=False,
     )
 
     for axx in ax.ravel():
@@ -90,17 +92,25 @@ def create_figures(
 
             # loop over pairs of method and eta stored in methods_eta
 
-            for im, (method, eta, num_subsets) in enumerate(methods_eta_ss):
+            for im, (
+                method,
+                eta,
+                num_subsets,
+                init_step_size,
+                subset_seed,
+                subset_sampling_method,
+            ) in enumerate(methods_eta_ss):
                 for ip, precond_type in enumerate(precond_types):
                     res_file = (
                         ref_file.parent
-                        / f"{ref_file.stem}_ne_{num_epochs}_ns_{num_subsets}_m_{method}_pc_{precond_type}_s0_{init_step_size:.2E}_eta_{eta:.2E}.json"
+                        / f"{ref_file.stem}_ne_{num_epochs}_ns_{num_subsets}_m_{method}_pc_{precond_type}_s0_{init_step_size:.2E}_eta_{eta:.2E}_ss_{subset_seed}_ssm_{subset_sampling_method}.json"
                     )
 
                     # read nrmse_stochastic from the JSON file
                     with open(res_file, "r", encoding="utf-8") as f:
                         content = json.load(f)
                         nrmse_stochastic = content["nrmse_stochastic"]
+                        walltime = content["walltime_stochastic"]
 
                     # plot the nrmse_stochastic values
                     if ip == 0:
@@ -119,23 +129,30 @@ def create_figures(
                         # where every 2nd epoch is an extra full pass is needed
                         data_passes += np.repeat(data_passes, 2)[:num_epochs]
 
+                    if xaxis == "data_passes":
+                        x = data_passes
+                    elif xaxis == "walltime":
+                        x = walltime[(num_subsets - 1) :: num_subsets]
+
                     ax[i, j].loglog(
-                        data_passes,
+                        x,
                         nrmse_stochastic[(num_subsets - 1) :: num_subsets],
                         color=plt.cm.tab10(im),
                         linestyle=ls,
                         linewidth=lw,
-                        label=f"{method} $\\eta$={eta:.2f} pc={precond_type} ns={num_subsets}",
+                        label=f"{method} $\\eta$={eta:.2f} pc={precond_type} ns={num_subsets} s0={init_step_size:.1f}",
                     )
 
     for axx in ax.ravel():
-        # axx.xaxis.set_minor_locator(ticker.MultipleLocator(10))
         axx.grid(True, which="both", ls="-", lw=0.1)
-        axx.set_xlim(xmin, xmax)
+        # axx.set_xlim(xmin, xmax)
         axx.set_ylim(ymin, ymax)
 
     for axx in ax[-1, :]:
-        axx.set_xlabel("data passes")
+        if xaxis == "data_passes":
+            axx.set_xlabel("data passes")
+        elif xaxis == "walltime":
+            axx.set_xlabel("walltime [s]")
 
     for i, axx in enumerate(ax[0, :]):
         axx.set_title(f"$\\beta$ = {beta_rels[i]:.1f}", fontsize="medium")
@@ -153,7 +170,7 @@ def create_figures(
 
     ax[0, 0].legend(fontsize="xx-small", ncol=2, loc="lower right")
 
-    fig.suptitle(f"{sim_path_str}, s0 = {init_step_size:.2f}, TOF = {tof}")
+    fig.suptitle(f"{sim_path_str}, TOF = {tof}")
 
     fig2.suptitle(f"{sim_path_str} TOF = {tof}")
     fig3.suptitle(f"{sim_path_str} TOF = {tof}")
@@ -180,11 +197,18 @@ if __name__ == "__main__":
                 method_eta.split(":")[0],
                 float(method_eta.split(":")[1]),
                 int(method_eta.split(":")[2]),
+                float(method_eta.split(":")[3]),
+                int(method_eta.split(":")[4]),
+                str(method_eta.split(":")[5]),
             )
             for method_eta in s.split(",")
         ],
-        default=[("SGD", 0.1, 27), ("SAGA", 0.0, 27), ("SVRG", 0.0, 27)],
-        help='List of methods and eta values in the format "method:eta:num_ss,method:eta:num_ss,...".',
+        default=[
+            ("SGD", 0.1, 27, 1.0, 1, "wor"),
+            ("SAGA", 0.0, 27, 1.0, 1, "wor"),
+            ("SVRG", 0.0, 27, 1.0, 1, "wor"),
+        ],
+        help='List of method,eta,num_subsets,init_step,subset_seed,sampling_method values in the format "method:eta:num_ss:init_step:subset_seed:sampling_method,method:eta:num_ss:init_step:subset_seed,sampling_method...".',
     )
     parser.add_argument(
         "--true_counts_list",
@@ -220,9 +244,6 @@ if __name__ == "__main__":
     parser.add_argument("--phantom_type", type=int, default=1, help="Phantom type.")
     parser.add_argument("--num_epochs", type=int, default=100, help="Number of epochs.")
     parser.add_argument(
-        "--init_step_size", type=float, default=1.0, help="Initial step size."
-    )
-    parser.add_argument(
         "--show_every_update",
         action="store_true",
         help="Show NRMSE for every update instead of complete epochs",
@@ -238,7 +259,7 @@ if __name__ == "__main__":
 
     # %%
     sim_path_str: str = args.sim_path
-    methods_eta_ss: List[tuple[str, float, int]] = args.methods_eta_ss
+    methods_eta_ss: List[tuple[str, float, int, float, int, str]] = args.methods_eta_ss
 
     true_counts_list: List[float] = args.true_counts_list
     beta_rels: List[float] = args.beta_rels
@@ -253,8 +274,6 @@ if __name__ == "__main__":
     phantom_type: int = args.phantom_type
 
     num_epochs: int = args.num_epochs
-
-    init_step_size: float = args.init_step_size
 
     show_complete_epochs_only: bool = not args.show_every_update
 
@@ -282,7 +301,6 @@ if __name__ == "__main__":
         seed=seed,
         phantom_type=phantom_type,
         num_epochs=num_epochs,
-        init_step_size=init_step_size,
         xmin=xmin,
         xmax=xmax,
         ymin=ymin,
@@ -293,7 +311,7 @@ if __name__ == "__main__":
     fig2.show()
     fig3.show()
 
-    output_pdf_path = Path(sim_path_str) / f"00_tof_{tof}_s0_{init_step_size}.pdf"
+    output_pdf_path = Path(sim_path_str) / f"00_tof_{tof}.pdf"
     with PdfPages(output_pdf_path) as pdf:
         pdf.savefig(fig)
         pdf.savefig(fig2)
