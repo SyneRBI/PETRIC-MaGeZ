@@ -10,7 +10,7 @@ beta_rels: List[float] = [1.0, 4.0, 16.0]
 gamma_rdp: float = 2
 num_iter_bfgs_ref: int = 500
 num_rings: int = 17
-tof: bool = False
+tof: bool = True
 contam_fraction: float = 0.5
 seed: int = 1
 phantom_type: int = 1
@@ -84,4 +84,4 @@ for axx in ax2.ravel():
 # %%
 fig2.show()
 
-fig2.savefig("zz.png", dpi=300)
+fig2.savefig(f"fig1_ref_recons_tof_{tof}.png", dpi=300)
