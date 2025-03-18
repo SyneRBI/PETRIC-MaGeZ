@@ -9,12 +9,12 @@ from matplotlib.backends.backend_pdf import PdfPages
 
 
 def create_subset_figures(
-    sim_path_str: str = "sim_results_250313_svrg_subsets",
+    sim_path_str: str = "sim_results",
     method: str = "SVRG",
     num_subsets: int = 27,
     init_step_sizes: List[float] = [1.5, 1.0, 0.3],
     true_counts_list: List[float] = [1e7, 1e8],
-    beta_rels: List[float] = [4.0],
+    beta_rels: List[float] = [1.0, 4.0, 16.0],
     precond_type_list: list[int] = [1, 2],
     gamma_rdp: float = 2,
     num_iter_bfgs_ref: int = 500,

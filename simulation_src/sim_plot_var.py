@@ -9,8 +9,8 @@ from matplotlib.backends.backend_pdf import PdfPages
 
 
 def create_subset_figures(
-    sim_path_str: str = "sim_results_250313_svrg_subsets",
-    method: str = "SGD",
+    sim_path_str: str = "sim_results",
+    method: str = "SVRG",
     num_subsets_list: list[int] = [8, 27, 54, 108],
     init_step_sizes: List[float] = [1.5, 1.0, 0.3],
     true_counts_list: List[float] = [1e7, 1e8],
