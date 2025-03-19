@@ -7,12 +7,12 @@ from typing import List
 
 
 sim_path_str: str = "sim_results_250313_svrg_subsets"
-method: str = "SGD"
+method: str = "SVRG"
 num_subsets: int = 27
 init_step_sizes: List[float] = [1.5, 1.0, 0.3]
 true_counts_list: List[float] = [1e7, 1e8]
 beta_rels: List[float] = [1.0, 4.0, 16.0]
-precond_type_dict: dict[int, tuple[str, str]] = {1: ("OSEM", ":"), 2: ("harm.", "-")}
+precond_type_dict: dict[int, tuple[str, str]] = {1: ("OSEM", "--"), 2: ("harm.", "-")}
 gamma_rdp: float = 2
 num_iter_bfgs_ref: int = 500
 num_rings: int = 17
@@ -21,14 +21,15 @@ contam_fraction: float = 0.5
 seed: int = 1
 phantom_type: int = 1
 num_epochs: int = 100
-xmin: int | None = None
-xmax: int | None = None
+xmin: float | None = 2.0
+xmax: float | None = 400.0
 ymin: float = 1e-3
 ymax: float = 6e-1
 xaxis: str = "walltime"
 eta: float = 0.02
 subset_seed: int = 1
 subset_sampling_method: str = "wor"
+add_legend: bool = False
 
 # %%
 sim_path = Path(sim_path_str)
@@ -39,7 +40,7 @@ ncols = len(beta_rels)
 fig, ax = plt.subplots(
     nrows,
     ncols,
-    figsize=(8, 5),
+    figsize=(8, 3.5),
     tight_layout=True,
     sharex=True,
     sharey=True,
@@ -50,6 +51,8 @@ for axx in ax.ravel():
     axx.axhline(1e-2, color="k")
 
 lw = 1.0
+
+handles = []
 
 for i, true_counts in enumerate(true_counts_list):
     for j, beta_rel in enumerate(beta_rels):
@@ -89,7 +92,7 @@ for i, true_counts in enumerate(true_counts_list):
 
                 label = f"$s_0$={init_step_size:.1f}, PC={precond_type}"
 
-                ax[i, j].loglog(
+                (line,) = ax[i, j].loglog(
                     x,
                     nrmse_stochastic[(num_subsets - 1) :: num_subsets],
                     color=plt.cm.tab10(i_s),
@@ -98,9 +101,12 @@ for i, true_counts in enumerate(true_counts_list):
                     label=label,
                 )
 
+                if i == 0 and j == 0:
+                    handles.append(line)
+
 for axx in ax.ravel():
     axx.grid(True, which="both", ls="-", lw=0.1)
-    # axx.set_xlim(xmin, xmax)
+    axx.set_xlim(xmin, xmax)
     axx.set_ylim(ymin, ymax)
 
 for axx in ax[-1, :]:
@@ -115,9 +121,21 @@ for i, axx in enumerate(ax[0, :]):
 for i, axx in enumerate(ax[:, 0]):
     exp = int(np.log10(true_counts_list[i]))
     mant = true_counts_list[i] / 10**exp
-    axx.set_ylabel(f"NRMSE   counts = ${mant:.0f} \\cdot 10^{exp}$")
+    axx.set_ylabel(f"${mant:.0f} \\cdot 10^{exp}$ counts \n NRMSE")
 
-ax[0, 0].legend(fontsize="x-small", ncol=1, loc="lower left", numpoints=2)
+
+if add_legend:
+    fig.legend(
+        handles=handles,
+        loc="lower center",
+        ncol=3,
+        bbox_to_anchor=(0.55, 0.47),
+        fancybox=True,
+        fontsize="x-small",
+        framealpha=0.95,
+        numpoints=2,
+    )
+
 
 fig.show()
 fig.savefig(f"fig3_pc_{method}_{num_subsets}_{eta:.2E}_{subset_sampling_method}.pdf")

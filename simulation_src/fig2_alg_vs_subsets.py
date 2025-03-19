@@ -30,7 +30,8 @@ eta: float = 0.02
 subset_seeds: list[int] = [1, 2, 3, 4, 5]
 subset_sampling_method: str = "wor"
 line_styles: List[str] = ["-", "--", ":", "-."]
-
+lw: float = 1.2
+add_legend: bool = False
 
 sim_path = Path(sim_path_str)
 
@@ -40,7 +41,7 @@ ncols = len(beta_rels)
 fig, ax = plt.subplots(
     nrows,
     ncols,
-    figsize=(8, 5),
+    figsize=(8, 3.5),
     tight_layout=True,
     sharex=True,
     sharey=True,
@@ -65,7 +66,6 @@ for i, true_counts in enumerate(true_counts_list):
             for i_s, init_step_size in enumerate(init_step_sizes):
                 for i_ss, subset_seed in enumerate(subset_seeds):
                     ls = line_styles[i_s]
-                    lw = 1.0
                     res_file = (
                         ref_file.parent
                         / f"{ref_file.stem}_ne_{num_epochs}_ns_{num_subsets}_m_{method}_pc_{precond_type}_s0_{init_step_size:.2E}_eta_{eta:.2E}_ss_{subset_seed}_ssm_{subset_sampling_method}.json"
@@ -125,18 +125,20 @@ for i, axx in enumerate(ax[0, :]):
 for i, axx in enumerate(ax[:, 0]):
     exp = int(np.log10(true_counts_list[i]))
     mant = true_counts_list[i] / 10**exp
-    axx.set_ylabel(f"NRMSE   counts = ${mant:.0f} \\cdot 10^{exp}$")
+    axx.set_ylabel(f"${mant:.0f} \\cdot 10^{exp}$ counts \n NRMSE")
 
-fig.legend(
-    handles=lines,
-    loc="lower center",
-    ncol=4,
-    bbox_to_anchor=(0.55, 0.42),
-    fancybox=True,
-    fontsize="x-small",
-    framealpha=0.75,
-    numpoints=2,
-)
+
+if add_legend:
+    fig.legend(
+        handles=lines,
+        loc="lower center",
+        ncol=4,
+        bbox_to_anchor=(0.55, 0.42),
+        fancybox=True,
+        fontsize="x-small",
+        framealpha=0.75,
+        numpoints=2,
+    )
 
 fig.show()
 fig.savefig(f"fig2_{method}.pdf")
