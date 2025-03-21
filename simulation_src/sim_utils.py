@@ -290,6 +290,7 @@ class StochasticGradientDescent:
         complete_gradient_epochs: None | list[int] = None,
         precond_update_epochs: None | list[int] = None,
         verbose: bool = False,
+        gradient_norm_based_sampling: bool = False,
     ):
         if method not in ["SVRG", "SGD", "SAGA"]:
             raise ValueError("Unknown optimization method")
@@ -342,7 +343,22 @@ class StochasticGradientDescent:
         self._diag_precond = self._diag_precond_func(self._x)
         self._step_size = 1.0
 
-        self._subset_generator = subset_generator
+        ##################################################################
+        ##################################################################
+        ##################################################################
+        self._gradient_norm_based_sampling = gradient_norm_based_sampling
+
+        if self._gradient_norm_based_sampling:
+            self._subset_generator = ProbabilisticSampler(
+                p=np.ones(self._num_subsets) / self._num_subsets,
+                seed=1,
+                with_replacement=True,
+            )
+            ##################################################################
+            ##################################################################
+            ##################################################################
+        else:
+            self._subset_generator = subset_generator
 
         self._t0 = time()
 
@@ -371,6 +387,11 @@ class StochasticGradientDescent:
             )
 
         self._summed_subset_gradients = self._xp.sum(self._subset_gradients, axis=0)
+
+    def subset_gradient_norms(self) -> np.ndarray:
+        return np.array(
+            [float(self._xp.linalg.norm(g)) for g in self._subset_gradients]
+        )
 
     def update(self):
 
@@ -410,6 +431,20 @@ class StochasticGradientDescent:
                         f"  {self._update}, {self._subset}, recalculating all subset gradients"
                     )
                 self.update_all_subset_gradients()
+
+                #####################################################
+                #####################################################
+                #####################################################
+                # update the probabilities for the probabilistic sampling
+                if self._gradient_norm_based_sampling:
+                    sgns = self.subset_gradient_norms()
+                    pis = sgns / sgns.sum()
+                    print(pis.min(), pis.max(), (pis.max() - pis.min()) / pis.mean())
+                    self._subset_generator.p = pis
+                #####################################################
+                #####################################################
+                #####################################################
+
                 approximated_gradient = self._summed_subset_gradients
             else:
                 approximated_gradient = (
@@ -765,3 +800,53 @@ def subset_generator_with_replacement(
     rng = np.random.default_rng(seed)  # NumPy random generator with optional seed
     while True:
         yield rng.choice(indices)  # Yield a random index with replacement
+
+
+import numpy as np
+
+
+class ProbabilisticSampler:
+    def __init__(self, p: np.ndarray, seed: int, with_replacement=True):
+        self._p = p
+        self._N = len(p)
+        self._with_replacement = with_replacement
+        self._rng = np.random.default_rng(seed)
+
+        self._reset_remaining()
+
+    @property
+    def p(self) -> np.ndarray:
+        return self._p
+
+    @p.setter
+    def p(self, value: np.ndarray) -> None:
+        self._p = value
+        self._reset_remaining()
+
+    def _reset_remaining(self):
+        self._remaining = list(self._rng.choice(self._N, size=self._N, replace=False))
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if self._with_replacement:
+            return self._rng.choice(self._N, replace=True, p=self._p)
+        else:
+            if len(self._remaining) == 0:
+                self._reset_remaining()
+            return self._remaining.pop(0)
+
+
+if __name__ == "__main__":
+    p1 = np.array([0.5, 0.5, 0.0, 0.0])
+    sampler = ProbabilisticSampler(p1, seed=1, with_replacement=True)
+    for i in range(len(p1)):
+        print(next(sampler))
+
+    print()
+
+    p2 = np.array([0.0, 0.0, 1.0, 0.0])
+    sampler.p = p2
+    for i in range(len(p2)):
+        print(next(sampler))

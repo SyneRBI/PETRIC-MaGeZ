@@ -70,6 +70,7 @@ parser.add_argument("--eta", type=float, default=0.0)
 parser.add_argument("--init_step_size", type=float, default=1.0)
 parser.add_argument("--precond_update_epochs", type=int, default=None, nargs="+")
 parser.add_argument("--suffix", type=str, default="")
+parser.add_argument("--gnbs", action="store_true")
 
 
 args = parser.parse_args()
@@ -131,6 +132,8 @@ step_size_func = lambda k: init_step_size / (1 + eta * k / num_subsets)
 
 precond_update_epochs = args.precond_update_epochs
 suffix = args.suffix
+
+gradient_norm_based_sampling = args.gnbs
 
 # %%
 # random seed
@@ -480,6 +483,7 @@ stochastic_alg = StochasticGradientDescent(
     verbose=False,
     step_size_func=step_size_func,
     precond_update_epochs=precond_update_epochs,
+    gradient_norm_based_sampling=gradient_norm_based_sampling,
 )
 
 callback_res_stochastic = stochastic_alg.run(
