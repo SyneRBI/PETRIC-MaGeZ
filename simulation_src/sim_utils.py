@@ -5,6 +5,7 @@ from types import ModuleType
 from collections.abc import Generator
 from time import time
 from tqdm import tqdm
+import math
 
 import abc
 import parallelproj
@@ -291,6 +292,7 @@ class StochasticGradientDescent:
         precond_update_epochs: None | list[int] = None,
         verbose: bool = False,
         gradient_norm_based_sampling: bool = False,
+        barzilai_borwein: bool = False,
     ):
         if method not in ["SVRG", "SGD", "SAGA"]:
             raise ValueError("Unknown optimization method")
@@ -347,7 +349,7 @@ class StochasticGradientDescent:
         ##################################################################
         ##################################################################
         self._gradient_norm_based_sampling = gradient_norm_based_sampling
-
+        print(f"Gradient norm based sampling: {self._gradient_norm_based_sampling}")
         if self._gradient_norm_based_sampling:
             self._subset_generator = ProbabilisticSampler(
                 p=np.ones(self._num_subsets) / self._num_subsets,
@@ -360,6 +362,8 @@ class StochasticGradientDescent:
         else:
             self._subset_generator = subset_generator
 
+        self._barzilai_borwein = barzilai_borwein
+        print(f"Barzilai-Borwein: {self._barzilai_borwein}")
         self._t0 = time()
 
     @property
@@ -397,8 +401,16 @@ class StochasticGradientDescent:
 
         # update the step size according to the step size function
         # that maps the update_number to the step size (int -> float)
-        self._step_size = self._step_size_func(self._update)
-
+        if self._barzilai_borwein:
+            if self._update <= 10:
+                self._step_size = 3.
+            elif (self._update >10) and (self.epoch <=2):
+                self._step_size = 2.2
+            elif self.epoch >=10:
+                self._step_size = 1.0        
+        else:
+            self._step_size = self._step_size_func(self._update)
+        # print(f"Update:{self._update}, Step size: {self._step_size}")
         update_precond = (
             self._update % self._num_subsets == 0
         ) and self.epoch in self._precond_update_epochs
@@ -410,6 +422,7 @@ class StochasticGradientDescent:
 
         # choose the subset to update
         self._subset = next(self._subset_generator)
+        # print(f"epoch: {self.epoch}, iter:{self._update}, subset:{self._subset}, stepsize:{self._step_size}")
         if self._verbose:
             print(f" {self._update}, {self._subset}, subset gradient update")
 
@@ -431,6 +444,19 @@ class StochasticGradientDescent:
                         f"  {self._update}, {self._subset}, recalculating all subset gradients"
                     )
                 self.update_all_subset_gradients()
+                if self._barzilai_borwein:
+                    if self._update == 0:
+                        self.old_x = self._x
+                        self.old_g = self._summed_subset_gradients
+                    else:
+                        self.old_x -= self._x
+                        self.old_g -= self._summed_subset_gradients
+                        self.tmp = self._diag_precond * self.old_g 
+                        bb_step = self._xp.sum(self._xp.multiply(self.old_g, self.old_x)) / self._xp.sum(self._xp.multiply(self.old_g, self.tmp))
+                        self.old_x = self._x
+                        self.old_g = self._summed_subset_gradients
+                        max_ss = 2.5 if self.epoch <= 2 else self._step_size
+                        self._step_size = self._xp.clip(bb_step, 0.01, max_ss)
 
                 #####################################################
                 #####################################################
@@ -439,7 +465,8 @@ class StochasticGradientDescent:
                 if self._gradient_norm_based_sampling:
                     sgns = self.subset_gradient_norms()
                     pis = sgns / sgns.sum()
-                    print(pis.min(), pis.max(), (pis.max() - pis.min()) / pis.mean())
+                    # print(pis)
+                    # print(pis.min(), pis.max(), (pis.max() - pis.min()) / pis.mean())
                     self._subset_generator.p = pis
                 #####################################################
                 #####################################################
@@ -837,6 +864,77 @@ class ProbabilisticSampler:
                 self._reset_remaining()
             return self._remaining.pop(0)
 
+
+# Herman-Meyer order for subset selection
+def subset_generator_herman_meyer(
+    num_subsets: int
+) -> Generator[int, None, None]:
+    """subset generator with replacement"""
+    indices = herman_meyer_order(num_subsets)  # Create an array of subset indices
+    while True:
+        indices = herman_meyer_order(num_subsets)
+        yield from indices  # Yield a herman-meyer generated index
+
+def herman_meyer_order(n):
+    order = [0] * n
+    factors = []
+    len_order = len(order)
+
+    while n % 2 == 0:
+        factors.append(2)
+        n //= 2
+
+    # Check for odd factors
+    for factor in range(3, int(n ** 0.5) + 1, 2):
+        while n % factor == 0:
+            factors.append(factor)
+            n //= factor
+
+    # If n is a prime number greater than 2
+    if n > 2:
+        factors.append(n)
+
+    n_factors = len(factors)
+    value = 0
+    for factor_n in range(n_factors):
+        n_change_value = 1 if factor_n == 0 else math.prod(factors[:factor_n])
+        n_rep_value = 0
+
+        for element in range(len_order):
+            mapping = value
+            n_rep_value += 1
+            if n_rep_value >= n_change_value:
+                value += 1
+                n_rep_value = 0
+            if value == factors[factor_n]:
+                value = 0
+            order[element] += math.prod(factors[factor_n + 1 :]) * mapping
+    return order
+
+# cofactor sampling
+
+def find_coprimes(n):
+    coprimes = []
+    for i in range(2, n):
+        if math.gcd(n, i) == 1:
+            coprimes.append(i)
+    return coprimes
+
+def subset_generator_cofactor(
+    num_subsets: int
+) -> Generator[int, None, None]:
+    """subset generator with replacement"""
+    coprimes = find_coprimes(num_subsets)
+    if not coprimes:
+        indices = [0] * 10000
+    else:
+        sorted_coprimes = sorted(coprimes, key=lambda x: min(abs(x - int(np.round(0.3*num_subsets))), abs(x - int(np.round(0.7*num_subsets))))) 
+    while True:
+        if not sorted_coprimes:
+            sorted_coprimes = sorted(coprimes, key=lambda x: min(abs(x - int(np.round(0.3*num_subsets))), abs(x - int(np.round(0.7*num_subsets))))) 
+        generator = sorted_coprimes.pop(0)
+        indices = [(generator*k)%num_subsets for k in range(num_subsets)]
+        yield from indices  # Yield a cofactor generated index
 
 if __name__ == "__main__":
     p1 = np.array([0.5, 0.5, 0.0, 0.0])
