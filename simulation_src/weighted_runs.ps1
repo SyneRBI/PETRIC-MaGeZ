@@ -18,7 +18,6 @@ foreach ($betaRel in $betaRelValues) {
                 foreach ($num_subsets in $subset_values) {
                     foreach ($sampling in $subset_sampling_method) {
                         Write-Output "Running simulation with true_counts=$trueCounts beta_rel=$betaRel and sampling=$sampling"
-                        $env:CUDA_VISIBLE_DEVICES = "1"
                         python sim_ablation.py `
                             --true_counts $trueCounts `
                             --beta_rel $betaRel `
@@ -32,7 +31,6 @@ foreach ($betaRel in $betaRelValues) {
                     }
 
                     Write-Output "Running simulation with true_counts=$trueCounts beta_rel=$betaRel and weighted sampling"
-                    $env:CUDA_VISIBLE_DEVICES = "1"
                     python sim_ablation.py `
                         --true_counts $trueCounts `
                         --beta_rel $betaRel `
@@ -60,7 +58,6 @@ foreach ($betaRel in $betaRelValues) {
                 foreach ($num_subsets in $subset_values) {
                     foreach ($sampling in $subset_sampling_method) {
                         Write-Output "Running simulation with true_counts=$trueCounts and beta_rel=$betaRel and sampling=$sampling"
-                        $env:CUDA_VISIBLE_DEVICES = "1"
                         python sim_ablation.py `
                             --tof `
                             --true_counts $trueCounts `
@@ -75,7 +72,6 @@ foreach ($betaRel in $betaRelValues) {
                     }
 
                     Write-Output "Running simulation with true_counts=$trueCounts beta_rel=$betaRel and weighted sampling"
-                    $env:CUDA_VISIBLE_DEVICES = "1"
                     python sim_ablation.py `
                         --tof `
                         --true_counts $trueCounts `

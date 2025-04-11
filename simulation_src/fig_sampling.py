@@ -8,9 +8,9 @@ from pathlib import Path
 from typing import List
 
 
-sim_path_str: str = "sim_resampling_results_54"
+sim_path_str: str = "sim_results_sampling_27"
 method: str = "SVRG"
-num_subsets: int = 54
+num_subsets: int = 27
 init_step_size: float = 1.0
 true_counts_list: List[float] = [1e7, 1e8]
 beta_rels: List[float] = [1.0, 4.0, 16.0]
@@ -31,7 +31,6 @@ ymin: float = 1e-3
 ymax: float = 1e-1
 xaxis: str = "walltime"
 eta: float = 0.01
-subset_seeds: list[int] = [1, 2, 3, 4, 5]
 subset_seed: int = 1
 subset_sampling_methods: List[str] = ["wr", "wor", "hm", "cofactor"]
 line_styles: List[str] = ["-", "--", ":", "-."]
@@ -72,7 +71,7 @@ for i, true_counts in enumerate(true_counts_list):
                 ref_file.parent
                 / f"{ref_file.stem}_ne_{num_epochs}_ns_{num_subsets}_m_{method}_pc_{precond_type}_s0_{init_step_size:.2E}_eta_{eta:.2E}_ss_{subset_seed}_ssm_{subset_sampling_method}_ssl_{step_size_rule}_gnbs{gnbs}_.json"
             )
-            
+
             # res_file = (
             #     ref_file.parent
             #     / f"{ref_file.stem}_ne_{num_epochs}_ns_{num_subsets}_m_{method}_pc_{precond_type}_s0_{init_step_size:.2E}_eta_{eta:.2E}_ss_{subset_seed}_ssm_{subset_sampling_method}_ssl_{step_size_rule}_gnbs{gnbs}_.json"
@@ -103,7 +102,7 @@ for i, true_counts in enumerate(true_counts_list):
             (line,) = ax[i, j].loglog(
                 x,
                 nrmse_stochastic[(num_subsets - 1) :: num_subsets],
-                color=plt.cm.tab10(i_ss+1),
+                color=plt.cm.tab10(i_ss + 1),
                 linestyle=ls,
                 linewidth=lw,
                 label=label,
@@ -111,14 +110,14 @@ for i, true_counts in enumerate(true_counts_list):
 
             # if i == 0 and j == 0:
             lines.append(line)
-        
-        # gnbs 
+
+        # gnbs
         ls = line_styles[2]
         res_file = (
             ref_file.parent
             / f"{ref_file.stem}_ne_{num_epochs}_ns_{num_subsets}_m_{method}_pc_{precond_type}_s0_{init_step_size:.2E}_eta_{eta:.2E}_ss_{subset_seed}_ssm_wor_ssl_{step_size_rule}_gnbsTrue_.json"
         )
-        
+
         # res_file = (
         #     ref_file.parent
         #     / f"{ref_file.stem}_ne_{num_epochs}_ns_{num_subsets}_m_{method}_pc_{precond_type}_s0_{init_step_size:.2E}_eta_{eta:.2E}_ss_{subset_seed}_ssm_{subset_sampling_method}_ssl_{step_size_rule}_gnbs{gnbs}_.json"
@@ -149,7 +148,7 @@ for i, true_counts in enumerate(true_counts_list):
         (line,) = ax[i, j].loglog(
             x,
             nrmse_stochastic[(num_subsets - 1) :: num_subsets],
-            color=plt.cm.tab10(i_ss+2),
+            color=plt.cm.tab10(i_ss + 2),
             linestyle=ls,
             linewidth=lw,
             label=label,
@@ -191,4 +190,4 @@ if add_legend:
     )
 
 fig.show()
-fig.savefig(f"fig_resampling_tof_54.pdf")
+fig.savefig(f"fig_resampling_tof__{tof}_ss_{num_subsets}.pdf")
