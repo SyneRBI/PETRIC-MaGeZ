@@ -77,7 +77,7 @@ for i, true_counts in enumerate(true_counts_list):
                 ref_file.parent
                 / f"{ref_file.stem}_ne_{num_epochs}_ns_{num_subsets}_m_{method}_pc_{precond_type}_s0_{init_step_size:.2E}_eta_{eta:.2E}_ss_{subset_seed}_ssm_{subset_sampling_method}_ssl_{step_size_rule}_gnbs{gnbs}_.json"
             )
-            
+
             # read nrmse_stochastic from the JSON file
             with open(res_file, "r", encoding="utf-8") as f:
                 content = json.load(f)
@@ -109,7 +109,7 @@ for i, true_counts in enumerate(true_counts_list):
 
             # if i == 0 and j == 0:
             lines.append(line)
-        
+
 
 for axx in ax.ravel():
     axx.grid(True, which="both", ls="-", lw=0.1)
@@ -144,4 +144,4 @@ if add_legend:
     )
 
 fig.show()
-fig.savefig(f"fig_stepsize_tof_v2.pdf")
+fig.savefig(f"fig_stepsize_rule_tof_{tof}.pdf")

@@ -36,7 +36,7 @@ from sim_utils import (
     subset_generator_with_replacement,
     subset_generator_without_replacement,
     subset_generator_herman_meyer,
-    subset_generator_cofactor
+    subset_generator_cofactor,
 )
 
 from rdp import RDP
@@ -60,7 +60,9 @@ def nrmse(vec_x, vec_y, mask, norm):
 parser = argparse.ArgumentParser()
 parser.add_argument("--seed", type=int, default=1)
 parser.add_argument("--subset_seed", type=int, default=1)
-parser.add_argument("--subset_sampling_method", default="wor", choices=["wor", "wr", "hm", "cofactor"])
+parser.add_argument(
+    "--subset_sampling_method", default="wor", choices=["wor", "wr", "hm", "cofactor"]
+)
 parser.add_argument("--true_counts", type=float, default=int(1e8))
 parser.add_argument("--beta_rel", type=float, default=1.0)
 parser.add_argument("--num_epochs", type=int, default=20)
@@ -74,7 +76,9 @@ parser.add_argument("--init_step_size", type=float, default=1.0)
 parser.add_argument("--precond_update_epochs", type=int, default=None, nargs="+")
 parser.add_argument("--suffix", type=str, default="")
 parser.add_argument("--gnbs", action="store_true")
-parser.add_argument("--step_size_rule", default="decaying", choices=["const", "decaying", "bb", "alg1"])
+parser.add_argument(
+    "--step_size_rule", default="decaying", choices=["const", "decaying", "bb", "alg1"]
+)
 
 args = parser.parse_args()
 
@@ -143,6 +147,7 @@ elif step_size_rule == "decaying":
 elif step_size_rule == "bb":
     init_step_size = args.init_step_size
     eta = 0.0
+
     def step_size_func(update: int) -> float:
         if update <= 10:
             new_step_size = 3.0
@@ -155,11 +160,13 @@ elif step_size_rule == "bb":
         else:
             new_step_size = 0.5
         return new_step_size
+
     barzilai_borwein = True
 
 elif step_size_rule == "alg1":
     init_step_size = args.init_step_size
     eta = 0.0
+
     def step_size_func(update: int) -> float:
         if update <= 10:
             new_step_size = 3.0
@@ -172,6 +179,7 @@ elif step_size_rule == "alg1":
         else:
             new_step_size = 0.5
         return new_step_size
+
     barzilai_borwein = False
 else:
     raise ValueError("invalid step size rule")
@@ -544,8 +552,8 @@ stochastic_alg = StochasticGradientDescent(
     step_size_func=step_size_func,
     precond_update_epochs=precond_update_epochs,
     gradient_norm_based_sampling=gradient_norm_based_sampling,
-    barzilai_borwein=barzilai_borwein
-)# add barzilai_borwein=barzilai_borwein
+    barzilai_borwein=barzilai_borwein,
+)  # add barzilai_borwein=barzilai_borwein
 
 callback_res_stochastic = stochastic_alg.run(
     num_epochs * num_subsets, callback=nrmse_callback
@@ -582,7 +590,7 @@ res_dict["walltime_stochastic"] = walltime_stochastic
 res_dict["nrmse_osem"] = nrmse_osem
 res_dict["nrmse_init"] = nrmse_init
 
-recon_path = Path("sim_resampling_results_31Mar")
+recon_path = Path("sim_resampling_results_ablation_250410")
 # recon_path = Path("sim_resampling_results_54")
 
 if not recon_path.exists():
