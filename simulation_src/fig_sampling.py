@@ -13,7 +13,7 @@ method: str = "SVRG"
 num_subsets: int = 27
 init_step_size: float = 1.0
 true_counts_list: List[float] = [1e7, 1e8]
-beta_rels: List[float] = [1.0, 4.0, 16.0]
+beta_rels: List[float] = [16.0, 4.0, 1.0]
 precond_type: int = 2
 gamma_rdp: float = 2
 gnbs: bool = False
@@ -190,4 +190,4 @@ if add_legend:
     )
 
 fig.show()
-fig.savefig(f"fig_resampling_tof__{tof}_ss_{num_subsets}.pdf")
+fig.savefig(f"fig5_sampling_tof_{tof}_ss_{num_subsets}.pdf")

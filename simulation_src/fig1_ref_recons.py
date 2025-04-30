@@ -6,7 +6,7 @@ from typing import List
 
 
 true_counts_list: List[float] = [1e7, 1e8]
-beta_rels: List[float] = [1.0, 4.0, 16.0]
+beta_rels: List[float] = [16.0, 4.0, 1.0]
 gamma_rdp: float = 2
 num_iter_bfgs_ref: int = 500
 num_rings: int = 17

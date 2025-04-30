@@ -13,14 +13,14 @@ method: str = "SVRG"
 num_subsets: int = 27
 init_step_size: float = 1.0
 true_counts_list: List[float] = [1e7, 1e8]
-beta_rels: List[float] = [1.0, 4.0, 16.0]
+beta_rels: List[float] = [16.0, 4.0, 1.0]
 precond_type: int = 2
 gamma_rdp: float = 2
 gnbs: bool = False
 step_size_rules: List[str] = ["decaying", "bb", "alg1", "const"]
 num_iter_bfgs_ref: int = 500
 num_rings: int = 17
-tof: bool = False
+tof: bool = True
 contam_fraction: float = 0.5
 seed: int = 1
 phantom_type: int = 1
@@ -144,4 +144,4 @@ if add_legend:
     )
 
 fig.show()
-fig.savefig(f"fig_stepsize_rule_tof_{tof}.pdf")
+fig.savefig(f"fig6_stepsize_rule_tof_{tof}.pdf")

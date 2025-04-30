@@ -11,7 +11,7 @@ method: str = "SVRG"
 num_subsets_list: list[int] = [8, 27, 54, 108]
 init_step_sizes: List[float] = [1.5, 1.0, 0.3]
 true_counts_list: List[float] = [1e7, 1e8]
-beta_rels: List[float] = [1.0, 4.0, 16.0]
+beta_rels: List[float] = [16.0, 4.0, 1.0]
 precond_type: int = 2
 gamma_rdp: float = 2
 num_iter_bfgs_ref: int = 500
@@ -31,7 +31,7 @@ subset_seeds: list[int] = [1, 2, 3, 4, 5]
 subset_sampling_method: str = "wor"
 line_styles: List[str] = ["-", "--", ":", "-."]
 lw: float = 1.2
-add_legend: bool = False
+add_legend: bool = True
 
 sim_path = Path(sim_path_str)
 
@@ -92,7 +92,7 @@ for i, true_counts in enumerate(true_counts_list):
                         x = walltime[(num_subsets - 1) :: num_subsets]
 
                     if i_ss == 0:
-                        label = f"$n_s$={num_subsets} $s_0$={init_step_size:.1f}"
+                        label = f"$n_s$={num_subsets} $\\tau_0$={init_step_size:.1f}"
                     else:
                         label = None
 
@@ -141,4 +141,4 @@ if add_legend:
     )
 
 fig.show()
-fig.savefig(f"fig2_{method}.pdf")
+fig.savefig(f"fig3_{method}_{len(subset_seeds)}runs.pdf")

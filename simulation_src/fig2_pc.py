@@ -7,12 +7,12 @@ from typing import List
 
 
 sim_path_str: str = "sim_results_250313_svrg_subsets"
-method: str = "SVRG"
+method: str = "SGD"
 num_subsets: int = 27
 init_step_sizes: List[float] = [1.5, 1.0, 0.3]
 true_counts_list: List[float] = [1e7, 1e8]
-beta_rels: List[float] = [1.0, 4.0, 16.0]
-precond_type_dict: dict[int, tuple[str, str]] = {1: ("OSEM", "--"), 2: ("harm.", "-")}
+beta_rels: List[float] = [16.0, 4.0, 1.0]
+precond_type_dict: dict[int, tuple[str, str]] = {1: ("MLEM", "--"), 2: ("harm", "-")}
 gamma_rdp: float = 2
 num_iter_bfgs_ref: int = 500
 num_rings: int = 17
@@ -29,7 +29,7 @@ xaxis: str = "walltime"
 eta: float = 0.02
 subset_seed: int = 1
 subset_sampling_method: str = "wor"
-add_legend: bool = False
+add_legend: bool = True
 
 # %%
 sim_path = Path(sim_path_str)
@@ -90,7 +90,7 @@ for i, true_counts in enumerate(true_counts_list):
                 elif xaxis == "walltime":
                     x = walltime[(num_subsets - 1) :: num_subsets]
 
-                label = f"$s_0$={init_step_size:.1f}, PC={precond_type}"
+                label = f"$\\tau_0$={init_step_size:.1f}, PC={precond_type}"
 
                 (line,) = ax[i, j].loglog(
                     x,
@@ -129,13 +129,13 @@ if add_legend:
         handles=handles,
         loc="lower center",
         ncol=3,
-        bbox_to_anchor=(0.55, 0.47),
+        bbox_to_anchor=(0.55, 0.43),
         fancybox=True,
         fontsize="x-small",
-        framealpha=0.95,
+        framealpha=0.9,
         numpoints=2,
     )
 
 
 fig.show()
-fig.savefig(f"fig3_pc_{method}_{num_subsets}_{eta:.2E}_{subset_sampling_method}.pdf")
+fig.savefig(f"fig2_pc_{method}_{num_subsets}_{eta:.2E}_{subset_sampling_method}.pdf")
