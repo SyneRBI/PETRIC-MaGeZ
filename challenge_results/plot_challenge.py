@@ -111,7 +111,7 @@ def scalars(ea: EventAccumulator, tag: str) -> list[tuple[float, float]]:
 
 # ------------------------------------------------------------------------------
 
-data_sets = sorted([x.stem for x in list(Path("ALG1").glob("*"))])
+data_sets = sorted([x.stem for x in list(Path("ALG1l").glob("*"))])
 
 for i_d, data_set in enumerate(data_sets):
     print(data_set)
@@ -128,7 +128,8 @@ for i_d, data_set in enumerate(data_sets):
 
         vmax = 1.5 * img_sm.max()
 
-    for i_alg, alg in enumerate(["ALG1", "ALG2", "ALG3"]):
+    # for i_alg, alg in enumerate(["ALG1", "ALG2", "ALG3"]):
+    for i_alg, alg in enumerate(["ALG1l"]):
 
         tensorboard_logfiles = sorted(
             list((Path(f"{alg}") / f"{data_set}").glob("events*"))
@@ -188,19 +189,20 @@ for i_d, data_set in enumerate(data_sets):
                 # convert to numpy array
                 values = np.array(tags[tag])
                 # get the time (min) and value
-                time = (values[:, 1] - (start or values[0, 1])) / 60
+                # time = (values[:, 1] - (start or values[0, 1])) / 60
+                time = (values[:, 1] - values[0, 1]) / 60
                 value = values[:, 0]
                 # plot the values
+                color = plt.cm.tab10(i_alg)
+                alpha = 1.0 - (i_f * 0.2)  # Decrease alpha as i_f increases
+                alpha = max(alpha, 0.2)  # Ensure alpha doesn't go below 0.2
                 if tag.startswith("RMSE"):
                     row = 0
 
-                    if i_f == 0:
-                        label = alg
-                    else:
-                        label = None
+                    label = f"{alg} r{i_f + 1}"
 
                     ax[row, col0].semilogy(
-                        time, value, "-", label=label, color=plt.cm.tab10(i_alg)
+                        time, value, "-", label=label, color=color, alpha=alpha
                     )
                     ax[row, col0].set_title(tag, fontsize="medium")
 
@@ -210,7 +212,7 @@ for i_d, data_set in enumerate(data_sets):
                     col0 += 1
                 else:
                     row = 1
-                    ax[row, col1].semilogy(time, value, "-", color=plt.cm.tab10(i_alg))
+                    ax[row, col1].semilogy(time, value, "-", color=color, alpha=alpha)
                     ax[row, col1].set_title(tag, fontsize="medium")
 
                     if i_alg == 0:
@@ -223,7 +225,7 @@ for i_d, data_set in enumerate(data_sets):
             im0 = ax[0, 2].imshow(img[sl0, :, :], **kws)
             im1 = ax[0, 3].imshow(img[:, sl1, :], aspect=voxsize[0] / voxsize[2], **kws)
 
-    ax[0, 0].legend(loc="upper right")
+    ax[0, 0].legend(loc="upper right", fontsize="x-small", ncol=3)
 
     for axx in ax[0, :2]:
         axx.grid(ls=":", which="both")  # Show grid for both major and minor ticks
