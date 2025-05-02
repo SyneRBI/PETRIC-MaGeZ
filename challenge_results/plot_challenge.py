@@ -128,8 +128,7 @@ for i_d, data_set in enumerate(data_sets):
 
         vmax = 1.5 * img_sm.max()
 
-    # for i_alg, alg in enumerate(["ALG1", "ALG2", "ALG3"]):
-    for i_alg, alg in enumerate(["ALG1l"]):
+    for i_alg, alg in enumerate(["ALG1l", "ALG2l", "ALG3l"]):
 
         tensorboard_logfiles = sorted(
             list((Path(f"{alg}") / f"{data_set}").glob("events*"))
