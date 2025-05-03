@@ -201,7 +201,13 @@ for i_d, data_set in enumerate(data_sets):
                     label = f"{alg} r{i_f + 1}"
 
                     ax[row, col0].semilogy(
-                        time, value, "-", label=label, color=color, alpha=alpha
+                        time,
+                        value,
+                        ".-",
+                        label=label,
+                        color=color,
+                        alpha=alpha,
+                        linewidth=0.75,
                     )
                     ax[row, col0].set_title(tag, fontsize="medium")
 
@@ -211,7 +217,9 @@ for i_d, data_set in enumerate(data_sets):
                     col0 += 1
                 else:
                     row = 1
-                    ax[row, col1].semilogy(time, value, "-", color=color, alpha=alpha)
+                    ax[row, col1].semilogy(
+                        time, value, ".-", color=color, alpha=alpha, linewidth=0.75
+                    )
                     ax[row, col1].set_title(tag, fontsize="medium")
 
                     if i_alg == 0:
