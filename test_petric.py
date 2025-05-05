@@ -3,90 +3,103 @@
 ANY CHANGES TO THIS FILE ARE IGNORED BY THE ORGANISERS.
 Only the `main.py` file may be modified by participants.
 
-This file is not intended for participants to use.
+This file is not intended for participants to use, except for
+the `get_data` function (and possibly `QualityMetrics` class).
 It is used by the organisers to run the submissions in a controlled way.
 It is included here purely in the interest of transparency.
 
 Usage:
-  petric.py [options]
+    petric.py [options]
 
 Options:
-  --log LEVEL                           set logging level (DEBUG, [default: INFO], WARNING, ERROR, CRITICAL).
-  --step_size=<ss>                      step size [default: 1.0].
-  --data_set=<ds>                       number of data set ([default: 0], 1, 2).
-  --num_iter=<ni>                       number of iterations [default: 100].
-  --num_subsets=<ns>                    number of iterations [default: -1].
-  --metric_period=<mf>                  period for updating metric [default: 10].
-  --complete_gradient_epochs=<numbers>  space separated list of epochs to compute the complete gradient [default: None].
-  --precond_update_epochs=<numbers>     space separated list of epochs to update the preconditioner [default: None].
-  --batch_mode                          run in batch mode (auto loop over settings).        
+    --log LEVEL  : Set logging level (DEBUG, [default: INFO], WARNING, ERROR, CRITICAL)
+    --outdir DIR : Specify the output directory [default: ./output]
 """
 import csv
 import logging
 import os
-import inspect
-import json
+import re
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePath
 from time import time
-from datetime import datetime
+from typing import Iterable
 
 import numpy as np
+from scipy.ndimage import binary_erosion
 from skimage.metrics import mean_squared_error as mse
 from tensorboardX import SummaryWriter
+from tqdm.auto import tqdm
+
+from docopt import docopt
 
 import sirf.STIR as STIR
 from cil.optimisation.algorithms import Algorithm
-from cil.optimisation.utilities import callbacks as cbks
+from cil.optimisation.utilities import callbacks as cil_callbacks
 from img_quality_cil_stir import ImageQualityCallback
-
-from main import Submission, submission_callbacks
 
 log = logging.getLogger("petric")
 TEAM = os.getenv("GITHUB_REPOSITORY", "SyneRBI/PETRIC-").split("/PETRIC-", 1)[-1]
 VERSION = os.getenv("GITHUB_REF_NAME", "")
-OUTDIR = Path(f"/o/logs/{TEAM}/{VERSION}" if TEAM and VERSION else "./output_magez")
+# OUTDIR = Path(f"/o/logs/{TEAM}/{VERSION}" if TEAM and VERSION else "./output")
+args = docopt(__doc__)
+OUTDIR = Path(args["--outdir"])
 if not (SRCDIR := Path("/mnt/share/petric")).is_dir():
     SRCDIR = Path("./data")
 
 
-class SaveIters(cbks.Callback):
+class Callback(cil_callbacks.Callback):
+    """
+    CIL Callback but with `self.skip_iteration` checking `min(self.interval, algo.update_objective_interval)`.
+    TODO: backport this class to CIL.
+    """
+
+    def __init__(self, interval: int = 1, **kwargs):
+        super().__init__(**kwargs)
+        self.interval = interval
+
+    def skip_iteration(self, algo: Algorithm) -> bool:
+        return (
+            algo.iteration % min(self.interval, algo.update_objective_interval) != 0
+            and algo.iteration != algo.max_iteration
+        )
+
+
+class SaveIters(Callback):
     """Saves `algo.x` as "iter_{algo.iteration:04d}.hv" and `algo.loss` in `csv_file`"""
 
-    def __init__(self, verbose=1, outdir=OUTDIR, csv_file="objectives.csv"):
-        super().__init__(verbose)
+    def __init__(self, outdir=OUTDIR, csv_file="objectives.csv", **kwargs):
+        super().__init__(**kwargs)
         self.outdir = Path(outdir)
         self.outdir.mkdir(parents=True, exist_ok=True)
         self.csv = csv.writer((self.outdir / csv_file).open("w", buffering=1))
         self.csv.writerow(("iter", "objective"))
 
     def __call__(self, algo: Algorithm):
-        if (
-            algo.iteration % algo.update_objective_interval == 0
-            or algo.iteration == algo.max_iteration
-        ):
+        if not self.skip_iteration(algo):
             log.debug("saving iter %d...", algo.iteration)
-            algo.x.write(str(self.outdir / f"iter_{algo.iteration:04d}.hv"))
+            # algo.x.write(str(self.outdir / f"iter_{algo.iteration:04d}.hv"))
             self.csv.writerow((algo.iteration, algo.get_last_loss()))
             log.debug("...saved")
-        if algo.iteration == algo.max_iteration:
-            algo.x.write(str(self.outdir / "iter_final.hv"))
+        # if algo.iteration == algo.max_iteration:
+        # algo.x.write(str(self.outdir / "iter_final.hv"))
 
 
-class StatsLog(cbks.Callback):
+class StatsLog(Callback):
     """Log image slices & objective value"""
 
     def __init__(
         self,
-        verbose=1,
         transverse_slice=None,
         coronal_slice=None,
+        sagittal_slice=None,
         vmax=None,
         logdir=OUTDIR,
+        **kwargs,
     ):
-        super().__init__(verbose)
+        super().__init__(**kwargs)
         self.transverse_slice = transverse_slice
         self.coronal_slice = coronal_slice
+        self.sagittal_slice = sagittal_slice
         self.vmax = vmax
         self.x_prev = None
         self.tb = (
@@ -96,11 +109,9 @@ class StatsLog(cbks.Callback):
         )
 
     def __call__(self, algo: Algorithm):
-        if (
-            algo.iteration % algo.update_objective_interval != 0
-            and algo.iteration != algo.max_iteration
-        ):
+        if self.skip_iteration(algo):
             return
+        t = self._time_
         log.debug("logging iter %d...", algo.iteration)
         # initialise `None` values
         self.transverse_slice = (
@@ -113,50 +124,86 @@ class StatsLog(cbks.Callback):
             if self.coronal_slice is None
             else self.coronal_slice
         )
+        self.sagittal_slice = (
+            algo.x.dimensions()[2] // 2
+            if self.sagittal_slice is None
+            else self.sagittal_slice
+        )
         self.vmax = algo.x.max() if self.vmax is None else self.vmax
 
-        self.tb.add_scalar("objective", algo.get_last_loss(), algo.iteration)
-        if self.x_prev is not None:
-            normalised_change = (algo.x - self.x_prev).norm() / algo.x.norm()
-            self.tb.add_scalar("normalised_change", normalised_change, algo.iteration)
-        self.x_prev = algo.x.clone()
+        if log.getEffectiveLevel() <= logging.DEBUG:
+            self.tb.add_scalar("objective", algo.get_last_loss(), algo.iteration, t)
+            if self.x_prev is not None:
+                normalised_change = (algo.x - self.x_prev).norm() / algo.x.norm()
+                self.tb.add_scalar(
+                    "normalised_change", normalised_change, algo.iteration, t
+                )
+            self.x_prev = algo.x.clone()
+        x_arr = algo.x.as_array()
         self.tb.add_image(
             "transverse",
-            np.clip(
-                algo.x.as_array()[self.transverse_slice : self.transverse_slice + 1]
-                / self.vmax,
-                0,
-                1,
-            ),
+            np.clip(x_arr[None, self.transverse_slice] / self.vmax, 0, 1),
             algo.iteration,
+            t,
         )
         self.tb.add_image(
             "coronal",
-            np.clip(algo.x.as_array()[None, :, self.coronal_slice] / self.vmax, 0, 1),
+            np.clip(x_arr[None, :, self.coronal_slice] / self.vmax, 0, 1),
             algo.iteration,
+            t,
+        )
+        self.tb.add_image(
+            "sagittal",
+            np.clip(x_arr[None, :, :, self.sagittal_slice] / self.vmax, 0, 1),
+            algo.iteration,
+            t,
         )
         log.debug("...logged")
 
 
-class QualityMetrics(ImageQualityCallback):
+class QualityMetrics(ImageQualityCallback, Callback):
     """From https://github.com/SyneRBI/PETRIC/wiki#metrics-and-thresholds"""
 
-    def __init__(self, reference_image, whole_object_mask, background_mask, **kwargs):
-        super().__init__(reference_image, **kwargs)
+    THRESHOLD = {"AEM_VOI": 0.005, "RMSE_whole_object": 0.01, "RMSE_background": 0.01}
+
+    def __init__(
+        self,
+        reference_image,
+        whole_object_mask,
+        background_mask,
+        interval: int = 1,
+        threshold_window: int = 10,
+        **kwargs,
+    ):
+        # TODO: drop multiple inheritance once `interval` included in CIL
+        Callback.__init__(self, interval=interval)
+        ImageQualityCallback.__init__(self, reference_image, **kwargs)
         self.whole_object_indices = np.where(whole_object_mask.as_array())
         self.background_indices = np.where(background_mask.as_array())
         self.ref_im_arr = reference_image.as_array()
         self.norm = self.ref_im_arr[self.background_indices].mean()
+        self.threshold_window = threshold_window
+        self.threshold_iters = 0
 
     def __call__(self, algo: Algorithm):
-        iteration = algo.iteration
-        if (
-            iteration % algo.update_objective_interval != 0
-            and iteration != algo.max_iteration
-        ):
+        if self.skip_iteration(algo):
             return
-        for tag, value in self.evaluate(algo.x).items():
-            self.tb_summary_writer.add_scalar(tag, value, iteration)
+        t = self._time_
+        # log metrics
+        metrics = self.evaluate(algo.x)
+        for tag, value in metrics.items():
+            self.tb_summary_writer.add_scalar(tag, value, algo.iteration, t)
+        # stop if `all(metrics < THRESHOLD)` for `threshold_window` iters
+        # NB: need to strip suffix from "AEM_VOI" tags
+        if all(
+            value <= self.THRESHOLD[re.sub("^(AEM_VOI)_.*", r"\1", tag)]
+            for tag, value in metrics.items()
+        ):
+            self.threshold_iters += 1
+            if self.threshold_iters >= self.threshold_window:
+                raise StopIteration
+        else:
+            self.threshold_iters = 0
 
     def evaluate(self, test_im: STIR.ImageData) -> dict[str, float]:
         assert not any(self.filter.values()), "Filtering not implemented"
@@ -184,47 +231,86 @@ class QualityMetrics(ImageQualityCallback):
             / self.norm
             for voi_name, voi_indices in sorted(self.voi_indices.items())
         }
-        return {**whole, **local}
+        self._evaluate_cache = {**whole, **local}
+        return self._evaluate_cache
+
+    def keys(self):
+        return ["RMSE_whole_object", "RMSE_background"] + [
+            f"AEM_VOI_{name}" for name in sorted(self.voi_indices)
+        ]
+
+    @staticmethod
+    def pass_index(metrics: np.ndarray, thresh: Iterable, window: int = 10) -> int:
+        """
+        Returns first index of `metrics` with value <= `thresh`.
+        The values must remain below the respective thresholds for at least `window` number of entries.
+        Otherwise raises IndexError.
+        """
+        thr_arr = np.asanyarray(thresh)
+        assert metrics.ndim == 2
+        assert thr_arr.ndim == 1
+        assert metrics.shape[1] == thr_arr.shape[0]
+        passed = (metrics <= thr_arr[None]).all(axis=1)
+        res = binary_erosion(passed, structure=np.ones(window), origin=-(window // 2))
+        return np.where(res)[0][0]
 
 
-class MetricsWithTimeout(cbks.Callback):
+class MetricsWithTimeout(Callback):
     """Stops the algorithm after `seconds`"""
 
     def __init__(
         self,
-        seconds=3000,
+        seconds=3600,
         outdir=OUTDIR,
         transverse_slice=None,
         coronal_slice=None,
-        verbose=1,
+        sagittal_slice=None,
+        tqdm_class=tqdm,
+        **kwargs,
     ):
-        super().__init__(verbose)
+        super().__init__(**kwargs)
         self._seconds = seconds
         self.callbacks = [
-            cbks.ProgressCallback(),
-            SaveIters(outdir=outdir),
+            cil_callbacks.ProgressCallback(
+                desc=f"{TEAM}/{VERSION}/{outdir.name}", tqdm_class=tqdm_class
+            ),
+            SaveIters(outdir=outdir, **kwargs),
             (
                 tb_cbk := StatsLog(
                     logdir=outdir,
                     transverse_slice=transverse_slice,
                     coronal_slice=coronal_slice,
+                    sagittal_slice=sagittal_slice,
+                    **kwargs,
                 )
             ),
         ]
-        self.tb = tb_cbk.tb
+        self.tb = tb_cbk.tb  # convenient access to the underlying SummaryWriter
         self.reset()
 
-    def reset(self, seconds=None):
-        self.limit = time() + (self._seconds if seconds is None else seconds)
+    def reset(self):
+        self.offset = 0
+        self.limit = (now := time()) + self._seconds
+        self.tb.add_scalar("reset", 0, -1, now)  # for relative timing calculation
 
     def __call__(self, algo: Algorithm):
-        if (now := time()) > self.limit:
+        if (time_excluding_metrics := (now := time()) - self.offset) > self.limit:
             log.warning("Timeout reached. Stopping algorithm.")
+            self.tb.add_scalar("reset", 0, algo.iteration, time_excluding_metrics)
             raise StopIteration
-        if self.callbacks:
-            for c in self.callbacks:
-                c(algo)
-            self.limit += time() - now
+        for c in self.callbacks:
+            c._time_ = time_excluding_metrics
+            c(algo)
+        if isinstance(self.callbacks[-1], QualityMetrics) and isinstance(
+            self.callbacks[0], cil_callbacks.ProgressCallback
+        ):
+            self.callbacks[0].pbar.set_postfix(
+                RMSE_whole_object=self.callbacks[-1]._evaluate_cache[
+                    "RMSE_whole_object"
+                ],
+                refresh=False,
+            )
+        self.offset += time() - now
 
     @staticmethod
     def mean_absolute_error(y, x):
@@ -260,27 +346,40 @@ class Dataset:
     whole_object_mask: STIR.ImageData | None
     background_mask: STIR.ImageData | None
     voi_masks: dict[str, STIR.ImageData]
+    FOV_mask: STIR.ImageData
+    path: PurePath
 
 
-def get_data(srcdir=".", outdir=OUTDIR, sirf_verbosity=0):
+def get_data(srcdir=".", outdir=OUTDIR, sirf_verbosity=0, read_sinos=True):
     """
     Load data from `srcdir`, constructs prior and return as a `Dataset`.
-    Also redirects sirf.STIR log output to `outdir`.
+    Also redirects sirf.STIR log output to `outdir`, unless that's set to None
     """
     srcdir = Path(srcdir)
-    outdir = Path(outdir)
     STIR.set_verbosity(sirf_verbosity)  # set to higher value to diagnose problems
     STIR.AcquisitionData.set_storage_scheme("memory")  # needed for get_subsets()
 
-    _ = STIR.MessageRedirector(
-        str(outdir / "info.txt"),
-        str(outdir / "warnings.txt"),
-        str(outdir / "errors.txt"),
+    if outdir is not None:
+        outdir = Path(outdir)
+        _ = STIR.MessageRedirector(
+            str(outdir / "info.txt"),
+            str(outdir / "warnings.txt"),
+            str(outdir / "errors.txt"),
+        )
+    acquired_data = (
+        STIR.AcquisitionData(str(srcdir / "prompts.hs")) if read_sinos else None
     )
-    acquired_data = STIR.AcquisitionData(str(srcdir / "prompts.hs"))
-    additive_term = STIR.AcquisitionData(str(srcdir / "additive_term.hs"))
-    mult_factors = STIR.AcquisitionData(str(srcdir / "mult_factors.hs"))
+    additive_term = (
+        STIR.AcquisitionData(str(srcdir / "additive_term.hs")) if read_sinos else None
+    )
+    mult_factors = (
+        STIR.AcquisitionData(str(srcdir / "mult_factors.hs")) if read_sinos else None
+    )
     OSEM_image = STIR.ImageData(str(srcdir / "OSEM_image.hv"))
+    # Find FOV mask
+    # WARNING: we are currently using Parralelproj with default settings, which uses a cylindrical FOV.
+    # The current code gives identical results to thresholding the sensitivity image (for those settings)
+    FOV_mask = STIR.TruncateToCylinderProcessor().process(OSEM_image.allocate(1))
     kappa = STIR.ImageData(str(srcdir / "kappa.hv"))
     if (penalty_strength_file := (srcdir / "penalisation_factor.txt")).is_file():
         penalty_strength = float(np.loadtxt(penalty_strength_file))
@@ -313,112 +412,223 @@ def get_data(srcdir=".", outdir=OUTDIR, sirf_verbosity=0):
         whole_object_mask,
         background_mask,
         voi_masks,
+        FOV_mask,
+        srcdir.resolve(),
     )
 
 
-def test_petric(ds: int, num_iter: int, suffix: str = "", **kwargs):
+DATA_SLICES = {
+    "Siemens_mMR_NEMA_IQ": {
+        "transverse_slice": 72,
+        "coronal_slice": 109,
+        "sagittal_slice": 89,
+    },
+    "Siemens_mMR_NEMA_IQ_lowcounts": {
+        "transverse_slice": 72,
+        "coronal_slice": 109,
+        "sagittal_slice": 89,
+    },
+    "Siemens_mMR_ACR": {"transverse_slice": 99},
+    "NeuroLF_Hoffman_Dataset": {"transverse_slice": 72},
+    "Mediso_NEMA_IQ": {
+        "transverse_slice": 22,
+        "coronal_slice": 89,
+        "sagittal_slice": 66,
+    },
+    "Siemens_Vision600_thorax": {},
+    "GE_DMI3_Torso": {},
+    "Siemens_Vision600_Hoffman": {},
+    "NeuroLF_Esser_Dataset": {},
+    "Siemens_Vision600_ZrNEMAIQ": {"transverse_slice": 60},
+    "GE_D690_NEMA_IQ": {"transverse_slice": 23},
+    "Mediso_NEMA_IQ_lowcounts": {
+        "transverse_slice": 22,
+        "coronal_slice": 74,
+        "sagittal_slice": 70,
+    },
+    "GE_DMI4_NEMA_IQ": {
+        "transverse_slice": 27,
+        "coronal_slice": 109,
+        "sagittal_slice": 78,
+    },
+}
 
-    # get arguments and values such that we can dump them in the outdir
-    frame = inspect.currentframe()
-    arguments = inspect.getargvalues(frame).args
-    values = inspect.getargvalues(frame).locals
-    arg_dict = {arg: values[arg] for arg in arguments}
+if SRCDIR.is_dir() and not os.getenv("PETRIC_SKIP_DATA", False):
+    # create list of existing data
+    # NB: `MetricsWithTimeout` initialises `SaveIters` which creates `outdir`
+    data_dirs_metrics = [
+        (
+            SRCDIR / "Siemens_mMR_NEMA_IQ",
+            OUTDIR / "mMR_NEMA",
+            [
+                MetricsWithTimeout(
+                    outdir=OUTDIR / "mMR_NEMA", **DATA_SLICES["Siemens_mMR_NEMA_IQ"]
+                )
+            ],
+        ),
+        (
+            SRCDIR / "Siemens_mMR_NEMA_IQ_lowcounts",
+            OUTDIR / "mMR_NEMA_lowcounts",
+            [
+                MetricsWithTimeout(
+                    outdir=OUTDIR / "mMR_NEMA_lowcounts",
+                    **DATA_SLICES["Siemens_mMR_NEMA_IQ_lowcounts"],
+                )
+            ],
+        ),
+        (
+            SRCDIR / "NeuroLF_Hoffman_Dataset",
+            OUTDIR / "NeuroLF_Hoffman",
+            [
+                MetricsWithTimeout(
+                    outdir=OUTDIR / "NeuroLF_Hoffman",
+                    **DATA_SLICES["NeuroLF_Hoffman_Dataset"],
+                )
+            ],
+        ),
+        (
+            SRCDIR / "Siemens_Vision600_thorax",
+            OUTDIR / "Vision600_thorax",
+            [
+                MetricsWithTimeout(
+                    outdir=OUTDIR / "Vision600_thorax",
+                    **DATA_SLICES["Siemens_Vision600_thorax"],
+                )
+            ],
+        ),
+        (
+            SRCDIR / "Siemens_mMR_ACR",
+            OUTDIR / "mMR_ACR",
+            [
+                MetricsWithTimeout(
+                    outdir=OUTDIR / "mMR_ACR", **DATA_SLICES["Siemens_mMR_ACR"]
+                )
+            ],
+        ),
+        (
+            SRCDIR / "Mediso_NEMA_IQ",
+            OUTDIR / "Mediso_NEMA",
+            [
+                MetricsWithTimeout(
+                    outdir=OUTDIR / "Mediso_NEMA", **DATA_SLICES["Mediso_NEMA_IQ"]
+                )
+            ],
+        ),
+        (
+            SRCDIR / "GE_DMI3_Torso",
+            OUTDIR / "DMI3_Torso",
+            [
+                MetricsWithTimeout(
+                    outdir=OUTDIR / "DMI3_Torso", **DATA_SLICES["GE_DMI3_Torso"]
+                )
+            ],
+        ),
+        (
+            SRCDIR / "Siemens_Vision600_Hoffman",
+            OUTDIR / "Vision600_Hoffman",
+            [
+                MetricsWithTimeout(
+                    outdir=OUTDIR / "Vision600_Hoffman",
+                    **DATA_SLICES["Siemens_Vision600_Hoffman"],
+                )
+            ],
+        ),
+        (
+            SRCDIR / "NeuroLF_Esser_Dataset",
+            OUTDIR / "NeuroLF_Esser",
+            [
+                MetricsWithTimeout(
+                    outdir=OUTDIR / "NeuroLF_Esser",
+                    **DATA_SLICES["NeuroLF_Esser_Dataset"],
+                )
+            ],
+        ),
+        (
+            SRCDIR / "Siemens_Vision600_ZrNEMAIQ",
+            OUTDIR / "Vision600_ZrNEMA",
+            [
+                MetricsWithTimeout(
+                    outdir=OUTDIR / "Vision600_ZrNEMA",
+                    **DATA_SLICES["Siemens_Vision600_ZrNEMAIQ"],
+                )
+            ],
+        ),
+        (
+            SRCDIR / "GE_D690_NEMA_IQ",
+            OUTDIR / "D690_NEMA",
+            [
+                MetricsWithTimeout(
+                    outdir=OUTDIR / "D690_NEMA", **DATA_SLICES["GE_D690_NEMA_IQ"]
+                )
+            ],
+        ),
+        (
+            SRCDIR / "Mediso_NEMA_IQ_lowcounts",
+            OUTDIR / "Mediso_NEMA_lowcounts",
+            [
+                MetricsWithTimeout(
+                    outdir=OUTDIR / "Mediso_NEMA_lowcounts",
+                    **DATA_SLICES["Mediso_NEMA_IQ_lowcounts"],
+                )
+            ],
+        ),
+        (
+            SRCDIR / "GE_DMI4_NEMA_IQ",
+            OUTDIR / "DMI4_NEMA",
+            [
+                MetricsWithTimeout(
+                    outdir=OUTDIR / "DMI4_NEMA", **DATA_SLICES["GE_DMI4_NEMA_IQ"]
+                )
+            ],
+        ),
+    ]
+    # data_dirs_metrics = data_dirs_metrics[4:5]
+else:
+    log.warning("Source directory does not exist: %s", SRCDIR)
+    data_dirs_metrics = [(None, None, [])]  # type: ignore
 
-    current_datetime = datetime.now()
-    formatted_datetime = current_datetime.strftime("%Y%m%d-%H%M%S")
-
-    # sdir_name = f"{formatted_datetime}_ss_{step_size}_n_{num_iter}_subs_{num_subsets}_phf_{precond_hessian_factor}"
-    sdir_name = f"{formatted_datetime}_{suffix}"
-
-    if ds == 0:
-        srcdir = SRCDIR / "Siemens_mMR_NEMA_IQ"
-        outdir = OUTDIR / "mMR_NEMA" / sdir_name
-    elif ds == 1:
-        srcdir = SRCDIR / "NeuroLF_Hoffman_Dataset"
-        outdir = OUTDIR / "NeuroLF_Hoffman" / sdir_name
-    elif ds == 2:
-        srcdir = SRCDIR / "Siemens_Vision600_thorax"
-        outdir = OUTDIR / "Vision600_thorax" / sdir_name
-    elif ds == 3:
-        srcdir = SRCDIR / "Siemens_mMR_ACR"
-        outdir = OUTDIR / "Siemens_mMR_ACR" / sdir_name
+if __name__ != "__main__":
+    # load up first data-set for people to play with
+    srcdir, outdir, metrics = data_dirs_metrics[0]
+    if srcdir is None:
+        data = None
     else:
-        raise ValueError(f"Unknown data set {ds}")
-
-    metrics = [MetricsWithTimeout(outdir=outdir)]
-
-    #########################################################
-    #########################################################
-    print(f"\n{srcdir}")
-    print("====================================")
-    data = get_data(srcdir=srcdir, outdir=outdir)
-
-    #########################################################
-    #########################################################
-
-    # dump arguments to json file
-    with open(outdir / "args.json", "w") as f:
-        json.dump(arg_dict, f, indent=4)
-
-    ########################################################
-    ########################################################
-    metrics_with_timeout = metrics[0]
-    if data.reference_image is not None:
-        metrics_with_timeout.callbacks.append(
-            QualityMetrics(
-                data.reference_image,
-                data.whole_object_mask,
-                data.background_mask,
-                tb_summary_writer=metrics_with_timeout.tb,
-                voi_mask_dict=data.voi_masks,
-            )
-        )
-    metrics_with_timeout.reset()  # timeout from now
-    ########################################################
-    ########################################################
-
-    algo = Submission(data=data, **kwargs)
-    algo.run(num_iter, callbacks=metrics + submission_callbacks)
-
-    del algo
-    del data
-
-
-if __name__ == "__main__":
-    from docopt import docopt
+        data = get_data(srcdir=srcdir, outdir=outdir)
+        metrics[0].reset()
+else:
+    from traceback import print_exc
+    from tqdm.contrib.logging import logging_redirect_tqdm
 
     args = docopt(__doc__)
+    logging.basicConfig(level=getattr(logging, args["--log"].upper()))
+    redir = logging_redirect_tqdm()
+    redir.__enter__()
+    from main import Submission, submission_callbacks
 
-    print(args)
-
-    if args["--complete_gradient_epochs"] == "None":
-        complete_gradient_epochs = None
-    else:
-        complete_gradient_epochs = list(
-            map(int, args["--complete_gradient_epochs"].split(" "))
-        )
-
-    if args["--precond_update_epochs"] == "None":
-        precond_update_epochs = None
-    else:
-        precond_update_epochs = list(
-            map(int, args["--precond_update_epochs"].split(" "))
-        )
-
-    if not args["--batch_mode"]:
-        logging.basicConfig(level=getattr(logging, args["--log"].upper()))
-
-        test_petric(
-            step_size=float(args["--step_size"]),
-            ds=int(args["--data_set"]),
-            num_iter=int(args["--num_iter"]),
-            num_subsets=int(args["--num_subsets"]),
-            complete_gradient_epochs=complete_gradient_epochs,
-            precond_update_epochs=precond_update_epochs,
-        )
-    else:
-        for i in [0, 1, 3, 2]:
-            for ns in [25]:
-                test_petric(
-                    ds=i, num_iter=300, suffix=f"num_sub_{ns}", approx_num_subsets=ns
+    assert issubclass(Submission, Algorithm)
+    for srcdir, outdir, metrics in data_dirs_metrics:
+        data = get_data(srcdir=srcdir, outdir=outdir)
+        metrics_with_timeout = metrics[0]
+        if data.reference_image is not None:
+            metrics_with_timeout.callbacks.append(
+                QualityMetrics(
+                    data.reference_image,
+                    data.whole_object_mask,
+                    data.background_mask,
+                    tb_summary_writer=metrics_with_timeout.tb,
+                    voi_mask_dict=data.voi_masks,
                 )
+            )
+        metrics_with_timeout.reset()  # timeout from now
+        print(f"Running {srcdir}")
+        algo = Submission(data)
+        try:
+            algo.run(
+                np.inf,
+                callbacks=metrics + submission_callbacks,
+                update_objective_interval=np.inf,
+            )
+        except Exception:
+            print_exc(limit=2)
+        finally:
+            del algo

@@ -1,3 +1,5 @@
+simulation_src/*
+challenge_results/*
 data/
 orgdata/
 output*/
