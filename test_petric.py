@@ -457,45 +457,45 @@ if SRCDIR.is_dir() and not os.getenv("PETRIC_SKIP_DATA", False):
     # create list of existing data
     # NB: `MetricsWithTimeout` initialises `SaveIters` which creates `outdir`
     data_dirs_metrics = [
-        (
-            SRCDIR / "Siemens_mMR_NEMA_IQ",
-            OUTDIR / "mMR_NEMA",
-            [
-                MetricsWithTimeout(
-                    outdir=OUTDIR / "mMR_NEMA", **DATA_SLICES["Siemens_mMR_NEMA_IQ"]
-                )
-            ],
-        ),
-        (
-            SRCDIR / "Siemens_mMR_NEMA_IQ_lowcounts",
-            OUTDIR / "mMR_NEMA_lowcounts",
-            [
-                MetricsWithTimeout(
-                    outdir=OUTDIR / "mMR_NEMA_lowcounts",
-                    **DATA_SLICES["Siemens_mMR_NEMA_IQ_lowcounts"],
-                )
-            ],
-        ),
-        (
-            SRCDIR / "NeuroLF_Hoffman_Dataset",
-            OUTDIR / "NeuroLF_Hoffman",
-            [
-                MetricsWithTimeout(
-                    outdir=OUTDIR / "NeuroLF_Hoffman",
-                    **DATA_SLICES["NeuroLF_Hoffman_Dataset"],
-                )
-            ],
-        ),
-        (
-            SRCDIR / "Siemens_Vision600_thorax",
-            OUTDIR / "Vision600_thorax",
-            [
-                MetricsWithTimeout(
-                    outdir=OUTDIR / "Vision600_thorax",
-                    **DATA_SLICES["Siemens_Vision600_thorax"],
-                )
-            ],
-        ),
+        # (
+        #    SRCDIR / "Siemens_mMR_NEMA_IQ",
+        #    OUTDIR / "mMR_NEMA",
+        #    [
+        #        MetricsWithTimeout(
+        #            outdir=OUTDIR / "mMR_NEMA", **DATA_SLICES["Siemens_mMR_NEMA_IQ"]
+        #        )
+        #    ],
+        # ),
+        # (
+        #    SRCDIR / "Siemens_mMR_NEMA_IQ_lowcounts",
+        #    OUTDIR / "mMR_NEMA_lowcounts",
+        #    [
+        #        MetricsWithTimeout(
+        #            outdir=OUTDIR / "mMR_NEMA_lowcounts",
+        #            **DATA_SLICES["Siemens_mMR_NEMA_IQ_lowcounts"],
+        #        )
+        #    ],
+        # ),
+        # (
+        #    SRCDIR / "NeuroLF_Hoffman_Dataset",
+        #    OUTDIR / "NeuroLF_Hoffman",
+        #    [
+        #        MetricsWithTimeout(
+        #            outdir=OUTDIR / "NeuroLF_Hoffman",
+        #            **DATA_SLICES["NeuroLF_Hoffman_Dataset"],
+        #        )
+        #    ],
+        # ),
+        # (
+        #    SRCDIR / "Siemens_Vision600_thorax",
+        #    OUTDIR / "Vision600_thorax",
+        #    [
+        #        MetricsWithTimeout(
+        #            outdir=OUTDIR / "Vision600_thorax",
+        #            **DATA_SLICES["Siemens_Vision600_thorax"],
+        #        )
+        #    ],
+        # ),
         (
             SRCDIR / "Siemens_mMR_ACR",
             OUTDIR / "mMR_ACR",
@@ -505,24 +505,24 @@ if SRCDIR.is_dir() and not os.getenv("PETRIC_SKIP_DATA", False):
                 )
             ],
         ),
-        (
-            SRCDIR / "Mediso_NEMA_IQ",
-            OUTDIR / "Mediso_NEMA",
-            [
-                MetricsWithTimeout(
-                    outdir=OUTDIR / "Mediso_NEMA", **DATA_SLICES["Mediso_NEMA_IQ"]
-                )
-            ],
-        ),
-        (
-            SRCDIR / "GE_DMI3_Torso",
-            OUTDIR / "DMI3_Torso",
-            [
-                MetricsWithTimeout(
-                    outdir=OUTDIR / "DMI3_Torso", **DATA_SLICES["GE_DMI3_Torso"]
-                )
-            ],
-        ),
+        # (
+        #    SRCDIR / "Mediso_NEMA_IQ",
+        #    OUTDIR / "Mediso_NEMA",
+        #    [
+        #        MetricsWithTimeout(
+        #            outdir=OUTDIR / "Mediso_NEMA", **DATA_SLICES["Mediso_NEMA_IQ"]
+        #        )
+        #    ],
+        # ),
+        # (
+        #    SRCDIR / "GE_DMI3_Torso",
+        #    OUTDIR / "DMI3_Torso",
+        #    [
+        #        MetricsWithTimeout(
+        #            outdir=OUTDIR / "DMI3_Torso", **DATA_SLICES["GE_DMI3_Torso"]
+        #        )
+        #    ],
+        # ),
         (
             SRCDIR / "Siemens_Vision600_Hoffman",
             OUTDIR / "Vision600_Hoffman",
@@ -543,16 +543,16 @@ if SRCDIR.is_dir() and not os.getenv("PETRIC_SKIP_DATA", False):
                 )
             ],
         ),
-        (
-            SRCDIR / "Siemens_Vision600_ZrNEMAIQ",
-            OUTDIR / "Vision600_ZrNEMA",
-            [
-                MetricsWithTimeout(
-                    outdir=OUTDIR / "Vision600_ZrNEMA",
-                    **DATA_SLICES["Siemens_Vision600_ZrNEMAIQ"],
-                )
-            ],
-        ),
+        # (
+        #    SRCDIR / "Siemens_Vision600_ZrNEMAIQ",
+        #    OUTDIR / "Vision600_ZrNEMA",
+        #    [
+        #        MetricsWithTimeout(
+        #            outdir=OUTDIR / "Vision600_ZrNEMA",
+        #            **DATA_SLICES["Siemens_Vision600_ZrNEMAIQ"],
+        #        )
+        #    ],
+        # ),
         (
             SRCDIR / "GE_D690_NEMA_IQ",
             OUTDIR / "D690_NEMA",
@@ -582,7 +582,6 @@ if SRCDIR.is_dir() and not os.getenv("PETRIC_SKIP_DATA", False):
             ],
         ),
     ]
-    # data_dirs_metrics = data_dirs_metrics[4:5]
 else:
     log.warning("Source directory does not exist: %s", SRCDIR)
     data_dirs_metrics = [(None, None, [])]  # type: ignore
