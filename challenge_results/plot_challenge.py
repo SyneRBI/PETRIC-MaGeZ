@@ -111,7 +111,7 @@ def scalars(ea: EventAccumulator, tag: str) -> list[tuple[float, float]]:
 
 # ------------------------------------------------------------------------------
 
-data_sets = sorted([x.stem for x in list(Path("ALG1l/output_1").glob("*ACR*"))])
+data_sets = sorted([x.stem for x in list(Path("ALG1l/output_1").glob("*"))])
 
 for i_d, data_set in enumerate(data_sets):
     print(data_set)
@@ -135,14 +135,14 @@ for i_d, data_set in enumerate(data_sets):
 
         tensorboard_logfiles = sorted(
             list(Path(f"{alg}").glob(f"output_[0-9]/{data_set}/events*"))
-        )[3:]
+        )
 
         for i_f, tensorboard_logfile in enumerate(tensorboard_logfiles):
             ea = EventAccumulator(str(tensorboard_logfile), size_guidance={SCALARS: 0})
             ea.Reload()
 
             try:
-                start_scalar = ea.Scalars("reset")[0]
+                start_scalar = ea.Scalars("reset")[1]
                 dreset = (
                     ea.Scalars("reset")[1].wall_time - ea.Scalars("reset")[0].wall_time,
                 )
@@ -247,12 +247,12 @@ for i_d, data_set in enumerate(data_sets):
     for axx in ax[0, :2]:
         axx.grid(ls=":", which="both")  # Show grid for both major and minor ticks
         axx.set_ylim(5e-4, 1)
-        axx.set_xlabel("wall time [min]")
+        axx.set_xlabel("wall time [s]")
 
     for axx in ax[1, :]:
         axx.grid(ls=":", which="both")  # Show grid for both major and minor ticks
         axx.set_ylim(5e-4, 1)
-        axx.set_xlabel("wall time [min]")
+        axx.set_xlabel("wall time [s]")
 
     for i in range(4, num_cols):
         ax[0, i].set_axis_off()
