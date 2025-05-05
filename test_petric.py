@@ -9,10 +9,11 @@ It is used by the organisers to run the submissions in a controlled way.
 It is included here purely in the interest of transparency.
 
 Usage:
-  petric.py [options]
+    petric.py [options]
 
 Options:
-  --log LEVEL  : Set logging level (DEBUG, [default: INFO], WARNING, ERROR, CRITICAL)
+    --log LEVEL  : Set logging level (DEBUG, [default: INFO], WARNING, ERROR, CRITICAL)
+    --outdir DIR : Specify the output directory [default: ./output]
 """
 import csv
 import logging
@@ -29,6 +30,8 @@ from skimage.metrics import mean_squared_error as mse
 from tensorboardX import SummaryWriter
 from tqdm.auto import tqdm
 
+from docopt import docopt
+
 import sirf.STIR as STIR
 from cil.optimisation.algorithms import Algorithm
 from cil.optimisation.utilities import callbacks as cil_callbacks
@@ -37,7 +40,9 @@ from img_quality_cil_stir import ImageQualityCallback
 log = logging.getLogger("petric")
 TEAM = os.getenv("GITHUB_REPOSITORY", "SyneRBI/PETRIC-").split("/PETRIC-", 1)[-1]
 VERSION = os.getenv("GITHUB_REF_NAME", "")
-OUTDIR = Path(f"/o/logs/{TEAM}/{VERSION}" if TEAM and VERSION else "./output")
+# OUTDIR = Path(f"/o/logs/{TEAM}/{VERSION}" if TEAM and VERSION else "./output")
+args = docopt(__doc__)
+OUTDIR = Path(args["--outdir"])
 if not (SRCDIR := Path("/mnt/share/petric")).is_dir():
     SRCDIR = Path("./data")
 
@@ -72,11 +77,11 @@ class SaveIters(Callback):
     def __call__(self, algo: Algorithm):
         if not self.skip_iteration(algo):
             log.debug("saving iter %d...", algo.iteration)
-            algo.x.write(str(self.outdir / f"iter_{algo.iteration:04d}.hv"))
+            # algo.x.write(str(self.outdir / f"iter_{algo.iteration:04d}.hv"))
             self.csv.writerow((algo.iteration, algo.get_last_loss()))
             log.debug("...saved")
-        if algo.iteration == algo.max_iteration:
-            algo.x.write(str(self.outdir / "iter_final.hv"))
+        # if algo.iteration == algo.max_iteration:
+        # algo.x.write(str(self.outdir / "iter_final.hv"))
 
 
 class StatsLog(Callback):
@@ -577,6 +582,7 @@ if SRCDIR.is_dir() and not os.getenv("PETRIC_SKIP_DATA", False):
             ],
         ),
     ]
+    # data_dirs_metrics = data_dirs_metrics[4:5]
 else:
     log.warning("Source directory does not exist: %s", SRCDIR)
     data_dirs_metrics = [(None, None, [])]  # type: ignore
@@ -591,8 +597,6 @@ if __name__ != "__main__":
         metrics[0].reset()
 else:
     from traceback import print_exc
-
-    from docopt import docopt
     from tqdm.contrib.logging import logging_redirect_tqdm
 
     args = docopt(__doc__)
@@ -602,7 +606,7 @@ else:
     from main import Submission, submission_callbacks
 
     assert issubclass(Submission, Algorithm)
-    for srcdir, outdir, metrics in data_dirs_metrics[-3:]:
+    for srcdir, outdir, metrics in data_dirs_metrics:
         data = get_data(srcdir=srcdir, outdir=outdir)
         metrics_with_timeout = metrics[0]
         if data.reference_image is not None:
@@ -616,6 +620,7 @@ else:
                 )
             )
         metrics_with_timeout.reset()  # timeout from now
+        print(f"Running {srcdir}")
         algo = Submission(data)
         try:
             algo.run(

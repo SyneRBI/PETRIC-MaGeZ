@@ -111,7 +111,7 @@ def scalars(ea: EventAccumulator, tag: str) -> list[tuple[float, float]]:
 
 # ------------------------------------------------------------------------------
 
-data_sets = sorted([x.stem for x in list(Path("ALG1l").glob("*"))])
+data_sets = sorted([x.stem for x in list(Path("ALG1l/output_1").glob("*ACR*"))])
 
 for i_d, data_set in enumerate(data_sets):
     print(data_set)
@@ -128,11 +128,14 @@ for i_d, data_set in enumerate(data_sets):
 
         vmax = 1.5 * img_sm.max()
 
-    for i_alg, alg in enumerate(["ALG1l", "ALG2l", "ALG3l"]):
+    # for i_alg, alg in enumerate(["ALG1l", "ALG2l", "ALG3l"]):
+    # for i_alg, alg in enumerate(["ALG1l"]):
+    # for i_alg, alg in enumerate(["ALG1", "ALG2", "ALG3"]):
+    for i_alg, alg in enumerate(["ALG1l"]):
 
         tensorboard_logfiles = sorted(
-            list((Path(f"{alg}") / f"{data_set}").glob("events*"))
-        )
+            list(Path(f"{alg}").glob(f"output_[0-9]/{data_set}/events*"))
+        )[3:]
 
         for i_f, tensorboard_logfile in enumerate(tensorboard_logfiles):
             ea = EventAccumulator(str(tensorboard_logfile), size_guidance={SCALARS: 0})
@@ -140,6 +143,14 @@ for i_d, data_set in enumerate(data_sets):
 
             try:
                 start_scalar = ea.Scalars("reset")[0]
+                dreset = (
+                    ea.Scalars("reset")[1].wall_time - ea.Scalars("reset")[0].wall_time,
+                )
+                print(alg, tensorboard_logfile, dreset)
+
+                # if dreset[0] > 50:
+                #    continue
+
             except KeyError:
                 print(
                     f"KeyError: reset: not using accurate relative time for {tensorboard_logfile}"
@@ -188,8 +199,7 @@ for i_d, data_set in enumerate(data_sets):
                 # convert to numpy array
                 values = np.array(tags[tag])
                 # get the time (min) and value
-                # time = (values[:, 1] - (start or values[0, 1])) / 60
-                time = (values[:, 1] - values[0, 1]) / 60
+                time = values[:, 1] - start
                 value = values[:, 0]
                 # plot the values
                 color = plt.cm.tab10(i_alg)
