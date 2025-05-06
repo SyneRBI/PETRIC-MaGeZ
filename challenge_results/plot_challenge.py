@@ -111,7 +111,7 @@ def scalars(ea: EventAccumulator, tag: str) -> list[tuple[float, float]]:
 
 # ------------------------------------------------------------------------------
 
-data_sets = sorted([x.stem for x in list(Path("ALG1l/output_1").glob("*"))])
+data_sets = sorted([x.stem for x in list(Path("ALG1/output_1").glob("*"))])
 
 for i_d, data_set in enumerate(data_sets):
     print(data_set)
@@ -128,10 +128,7 @@ for i_d, data_set in enumerate(data_sets):
 
         vmax = 1.5 * img_sm.max()
 
-    # for i_alg, alg in enumerate(["ALG1l", "ALG2l", "ALG3l"]):
-    # for i_alg, alg in enumerate(["ALG1l"]):
-    # for i_alg, alg in enumerate(["ALG1", "ALG2", "ALG3"]):
-    for i_alg, alg in enumerate(["ALG1l"]):
+    for i_alg, alg in enumerate(["ALG1", "ALG2", "ALG3"]):
 
         tensorboard_logfiles = sorted(
             list(Path(f"{alg}").glob(f"output_[0-9]/{data_set}/events*"))
@@ -194,6 +191,8 @@ for i_d, data_set in enumerate(data_sets):
             col0 = 0
             col1 = 0
 
+            reached_threshold = []
+
             # loop over the dict tags
             for i, tag in enumerate(sorted(tags.keys())):
                 # convert to numpy array
@@ -207,6 +206,7 @@ for i_d, data_set in enumerate(data_sets):
                 alpha = max(alpha, 0.2)  # Ensure alpha doesn't go below 0.2
                 if tag.startswith("RMSE"):
                     row = 0
+                    th = 0.01
 
                     label = f"{alg} r{i_f + 1}"
 
@@ -218,24 +218,42 @@ for i_d, data_set in enumerate(data_sets):
                         color=color,
                         alpha=alpha,
                         linewidth=0.75,
+                        markersize=2.5,
                     )
                     ax[row, col0].set_title(tag, fontsize="medium")
 
                     if i_alg == 0:
-                        ax[row, col0].axhline(0.01, color="k")
+                        ax[row, col0].axhline(th, color="k")
 
+                    reached_threshold.append(value < th)
                     col0 += 1
                 else:
                     row = 1
+                    th = 0.005
                     ax[row, col1].semilogy(
-                        time, value, ".-", color=color, alpha=alpha, linewidth=0.75
+                        time,
+                        value,
+                        ".-",
+                        color=color,
+                        alpha=alpha,
+                        linewidth=0.75,
+                        markersize=2.5,
                     )
                     ax[row, col1].set_title(tag, fontsize="medium")
 
                     if i_alg == 0:
-                        ax[row, col1].axhline(0.005, color="k")
+                        ax[row, col1].axhline(th, color="k")
 
+                    reached_threshold.append(value < th)
                     col1 += 1
+
+            reached_threshold = np.array(reached_threshold).prod(axis=0)
+            i_th = np.where(reached_threshold)[0][0]
+            t_th = float(time[i_th])
+            print(f"Threshold reached at {t_th:.2f} s, {i_th+1} iterations")
+            ax[0, 1].axvline(t_th, color=color, ls="-", alpha=0.5, linewidth=0.75)
+
+            # find the index in the left most axis where all values are True
 
         if header_file.exists():
             kws = dict(cmap="Greys", vmin=0, vmax=vmax)
