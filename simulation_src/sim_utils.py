@@ -403,11 +403,11 @@ class StochasticGradientDescent:
         # that maps the update_number to the step size (int -> float)
         if self._barzilai_borwein:
             if self._update <= 10:
-                self._step_size = 3.
-            elif (self._update >10) and (self.epoch <=2):
+                self._step_size = 3.0
+            elif (self._update > 10) and (self.epoch <= 2):
                 self._step_size = 2.2
-            elif self.epoch >=10:
-                self._step_size = 1.0        
+            elif self.epoch >= 10:
+                self._step_size = 1.0
         else:
             self._step_size = self._step_size_func(self._update)
         # print(f"Update:{self._update}, Step size: {self._step_size}")
@@ -451,8 +451,10 @@ class StochasticGradientDescent:
                     else:
                         self.old_x -= self._x
                         self.old_g -= self._summed_subset_gradients
-                        self.tmp = self._diag_precond * self.old_g 
-                        bb_step = self._xp.sum(self._xp.multiply(self.old_g, self.old_x)) / self._xp.sum(self._xp.multiply(self.old_g, self.tmp))
+                        self.tmp = self._diag_precond * self.old_g
+                        bb_step = self._xp.sum(
+                            self._xp.multiply(self.old_g, self.old_x)
+                        ) / self._xp.sum(self._xp.multiply(self.old_g, self.tmp))
                         self.old_x = self._x
                         self.old_g = self._summed_subset_gradients
                         max_ss = 2.5 if self.epoch <= 2 else self._step_size
@@ -513,9 +515,12 @@ class StochasticGradientDescent:
 
         callback_res = []
 
-        for _ in tqdm(range(num_updates)):
+        progress_bar = tqdm(range(num_updates))
+        for _ in progress_bar:
             if callback is not None:
-                callback_res.append([callback(self._x), time() - self._t0])
+                callback_value = callback(self._x)
+                callback_res.append([callback_value, time() - self._t0])
+                progress_bar.set_postfix({"cb": callback_value})
             self.update()
 
         return callback_res
@@ -866,14 +871,13 @@ class ProbabilisticSampler:
 
 
 # Herman-Meyer order for subset selection
-def subset_generator_herman_meyer(
-    num_subsets: int
-) -> Generator[int, None, None]:
+def subset_generator_herman_meyer(num_subsets: int) -> Generator[int, None, None]:
     """subset generator with replacement"""
     indices = herman_meyer_order(num_subsets)  # Create an array of subset indices
     while True:
         indices = herman_meyer_order(num_subsets)
         yield from indices  # Yield a herman-meyer generated index
+
 
 def herman_meyer_order(n):
     order = [0] * n
@@ -885,7 +889,7 @@ def herman_meyer_order(n):
         n //= 2
 
     # Check for odd factors
-    for factor in range(3, int(n ** 0.5) + 1, 2):
+    for factor in range(3, int(n**0.5) + 1, 2):
         while n % factor == 0:
             factors.append(factor)
             n //= factor
@@ -911,7 +915,9 @@ def herman_meyer_order(n):
             order[element] += math.prod(factors[factor_n + 1 :]) * mapping
     return order
 
+
 # cofactor sampling
+
 
 def find_coprimes(n):
     coprimes = []
@@ -920,21 +926,33 @@ def find_coprimes(n):
             coprimes.append(i)
     return coprimes
 
-def subset_generator_cofactor(
-    num_subsets: int
-) -> Generator[int, None, None]:
+
+def subset_generator_cofactor(num_subsets: int) -> Generator[int, None, None]:
     """subset generator with replacement"""
     coprimes = find_coprimes(num_subsets)
     if not coprimes:
         indices = [0] * 10000
     else:
-        sorted_coprimes = sorted(coprimes, key=lambda x: min(abs(x - int(np.round(0.3*num_subsets))), abs(x - int(np.round(0.7*num_subsets))))) 
+        sorted_coprimes = sorted(
+            coprimes,
+            key=lambda x: min(
+                abs(x - int(np.round(0.3 * num_subsets))),
+                abs(x - int(np.round(0.7 * num_subsets))),
+            ),
+        )
     while True:
         if not sorted_coprimes:
-            sorted_coprimes = sorted(coprimes, key=lambda x: min(abs(x - int(np.round(0.3*num_subsets))), abs(x - int(np.round(0.7*num_subsets))))) 
+            sorted_coprimes = sorted(
+                coprimes,
+                key=lambda x: min(
+                    abs(x - int(np.round(0.3 * num_subsets))),
+                    abs(x - int(np.round(0.7 * num_subsets))),
+                ),
+            )
         generator = sorted_coprimes.pop(0)
-        indices = [(generator*k)%num_subsets for k in range(num_subsets)]
+        indices = [(generator * k) % num_subsets for k in range(num_subsets)]
         yield from indices  # Yield a cofactor generated index
+
 
 if __name__ == "__main__":
     p1 = np.array([0.5, 0.5, 0.0, 0.0])
