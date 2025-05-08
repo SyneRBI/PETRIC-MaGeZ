@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import List
 
 
-sim_path_str: str = "sim_results_sampling_27"
+sim_path_str: str = "sim_results_sampling_27_250508"
 method: str = "SVRG"
 num_subsets: int = 27
 init_step_size: float = 1.0
@@ -30,7 +30,7 @@ xmax: float | None = 400.0
 ymin: float = 1e-3
 ymax: float = 5e-1
 xaxis: str = "walltime"
-eta: float = 0.01
+eta: float = 0.02
 subset_seed: int = 1
 subset_sampling_methods: List[str] = ["wr", "wor", "hm", "cofactor"]
 line_styles: List[str] = ["-", "--", ":", "-."]
