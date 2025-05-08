@@ -590,7 +590,7 @@ res_dict["walltime_stochastic"] = walltime_stochastic
 res_dict["nrmse_osem"] = nrmse_osem
 res_dict["nrmse_init"] = nrmse_init
 
-recon_path = Path("sim_resampling_results_ablation_250410")
+recon_path = Path("sim_results_ablation")
 # recon_path = Path("sim_resampling_results_54")
 
 if not recon_path.exists():

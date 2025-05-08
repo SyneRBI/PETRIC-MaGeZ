@@ -2,7 +2,7 @@
 $trueCountsValues = @(1e8, 1e7)
 $betaRelValues = @(16.0, 4.0, 1.0)
 $pc_types = @(2)
-$etas = @(0.01)
+$etas = @(0.02)
 $subset_values = @(27)
 $subset_sampling_method = @("wr", "wor", "hm", "cofactor")
 $num_epochs = 100

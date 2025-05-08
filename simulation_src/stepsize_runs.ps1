@@ -6,7 +6,7 @@ $betaRelValues = @(16.0, 4.0, 1.0)
 
 
 $pc_types = @(2)
-$etas = @(0.01)
+$etas = @(0.02)
 $subset_values = @(27)
 $stepsize_rule = @("decaying", "bb", "alg1", "const")
 $subset_sampling_method = @("wor")
