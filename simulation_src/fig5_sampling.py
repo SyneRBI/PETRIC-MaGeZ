@@ -188,4 +188,4 @@ for tof in tof_values:
         )
 
     fig.show()
-    fig.savefig(f"fig5_sampling_tof_{tof}_ss_{num_subsets}.pdf")
+    fig.savefig(f"fig5_sampling_tof_{tof}.pdf")
