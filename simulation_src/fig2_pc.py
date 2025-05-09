@@ -7,6 +7,7 @@ from typing import List
 
 
 sim_path_str: str = "sim_results_paper"
+ref_path_str: str = "sim_results_ref_recons"
 methods: list[str] = ["SVRG", "SAGA", "SGD"]
 num_subsets: int = 27
 init_step_sizes: List[float] = [1.5, 1.0, 0.3]
@@ -60,14 +61,14 @@ for method in methods:
             beta = beta_rel * (2e-4) * (true_counts / 3e7)
 
             ref_file = (
-                sim_path
+                Path(ref_path_str)
                 / f"rdp_t_{true_counts:.1E}_b_{beta_rel:.2f}_g_{gamma_rdp:.2f}_n_{num_iter_bfgs_ref}_nr_{num_rings}_tof_{tof}_cf_{contam_fraction}_s_{seed}_ph_{phantom_type}.npy"
             )
 
             for i_s, init_step_size in enumerate(init_step_sizes):
                 for i_p, (precond_type, ls) in precond_type_dict.items():
                     res_file = (
-                        ref_file.parent
+                        sim_path
                         / f"{ref_file.stem}_ne_{num_epochs}_ns_{num_subsets}_m_{method}_pc_{i_p}_s0_{init_step_size:.2E}_eta_{eta:.2E}_ss_{subset_seed}_ssm_{subset_sampling_method}.json"
                     )
 

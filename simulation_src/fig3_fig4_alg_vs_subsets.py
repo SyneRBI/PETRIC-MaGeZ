@@ -7,6 +7,7 @@ from typing import List
 
 
 sim_path_str: str = "sim_results_paper"
+ref_path_str: str = "sim_results_ref_recons"
 fig_nums: list[int] = [3, 4]  # 3 or 4 showing 1 / many runs
 
 methods: list[str] = ["SVRG", "SAGA"]
@@ -67,7 +68,7 @@ for fig_num in fig_nums:
                 beta = beta_rel * (2e-4) * (true_counts / 3e7)
 
                 ref_file = (
-                    sim_path
+                    Path(ref_path_str)
                     / f"rdp_t_{true_counts:.1E}_b_{beta_rel:.2f}_g_{gamma_rdp:.2f}_n_{num_iter_bfgs_ref}_nr_{num_rings}_tof_{tof}_cf_{contam_fraction}_s_{seed}_ph_{phantom_type}.npy"
                 )
 
@@ -78,7 +79,7 @@ for fig_num in fig_nums:
                         for i_ss, subset_seed in enumerate(subset_seeds):
                             ls = line_styles[i_s]
                             res_file = (
-                                ref_file.parent
+                                sim_path
                                 / f"{ref_file.stem}_ne_{num_epochs}_ns_{num_subsets}_m_{method}_pc_{precond_type}_s0_{init_step_size:.2E}_eta_{eta:.2E}_ss_{subset_seed}_ssm_{subset_sampling_method}.json"
                             )
 
