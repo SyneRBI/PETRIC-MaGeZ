@@ -288,5 +288,5 @@ for i_d, data_set in enumerate(data_sets):
     else:
         prefix = "train"
 
-    fig.savefig(f"{prefix}_{data_set}.pdf")
+    fig.savefig(f"fig7_{prefix}_{data_set}.pdf")
     fig.show()
