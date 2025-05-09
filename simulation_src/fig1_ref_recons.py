@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import List
 
 
+sim_path_str: str = "sim_results_paper"
 true_counts_list: List[float] = [1e7, 1e8]
 beta_rels: List[float] = [16.0, 4.0, 1.0]
 gamma_rdp: float = 2
@@ -19,7 +20,7 @@ crop: int = 30
 
 # %%
 
-sim_path = Path("sim_results")
+sim_path = Path(sim_path_str)
 
 nrows = len(true_counts_list)
 ncols = len(beta_rels)
