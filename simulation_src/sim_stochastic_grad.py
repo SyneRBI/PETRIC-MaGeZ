@@ -364,11 +364,14 @@ else:
 # %%
 # run (pre-conditioned) L-BFGS-B without subsets as reference
 
+ref_path = Path("sim_results_ref_recons")
+ref_path.mkdir(exist_ok=True)
+
 sim_path = Path("sim_results")
 sim_path.mkdir(exist_ok=True)
 
 ref_file = (
-    sim_path
+    ref_path
     / f"rdp_t_{true_counts:.1E}_b_{beta_rel:.2f}_g_{gamma_rdp:.2f}_n_{num_iter_bfgs_ref}_nr_{num_rings}_tof_{tof}_cf_{contam_fraction}_s_{seed}_ph_{phantom_type}.npy"
 )
 
@@ -522,7 +525,7 @@ res_dict["nrmse_osem"] = nrmse_osem
 res_dict["nrmse_init"] = nrmse_init
 
 res_file = (
-    ref_file.parent
+    sim_path
     / f"{ref_file.stem}_ne_{num_epochs}_ns_{num_subsets}_m_{method}_pc_{precond_type}_s0_{init_step_size:.2E}_eta_{eta:.2E}_ss_{subset_seed}_ssm_{subset_sampling_method}{suffix}.json"
 )
 

@@ -1,0 +1,8 @@
+name: petric-magez-sim
+
+channels:
+  - conda-forge
+dependencies:
+  - parallelproj = 1.10.1
+  - tqdm
+  - cupy # optional

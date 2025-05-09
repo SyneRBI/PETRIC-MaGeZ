@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import List
 
 
-sim_path_str: str = "sim_results_paper"
+ref_path_str: str = "sim_results_ref_recons"
 true_counts_list: List[float] = [1e7, 1e8]
 beta_rels: List[float] = [16.0, 4.0, 1.0]
 gamma_rdp: float = 2
@@ -19,8 +19,6 @@ phantom_type: int = 1
 crop: int = 30
 
 # %%
-
-sim_path = Path(sim_path_str)
 
 nrows = len(true_counts_list)
 ncols = len(beta_rels)
@@ -43,7 +41,7 @@ for i, true_counts in enumerate(true_counts_list):
         beta = beta_rel * (2e-4) * (true_counts / 3e7)
 
         ref_file = (
-            sim_path
+            Path(ref_path_str)
             / f"rdp_t_{true_counts:.1E}_b_{beta_rel:.2f}_g_{gamma_rdp:.2f}_n_{num_iter_bfgs_ref}_nr_{num_rings}_tof_{tof}_cf_{contam_fraction}_s_{seed}_ph_{phantom_type}.npy"
         )
 

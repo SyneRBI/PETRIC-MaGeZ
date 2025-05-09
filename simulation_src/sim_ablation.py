@@ -424,15 +424,11 @@ else:
 # %%
 # run (pre-conditioned) L-BFGS-B without subsets as reference
 
-sim_path = Path("sim_results_ref_recons")
-if not sim_path.exists():
-    # Create the directory if it does not exist
-    sim_path.mkdir()
-else:
-    print("Directory already exists.")
+ref_path = Path("sim_results_ref_recons")
+ref_path.mkdir(exist_ok=True)
 
 ref_file = (
-    sim_path
+    ref_path
     / f"rdp_t_{true_counts:.1E}_b_{beta_rel:.2f}_g_{gamma_rdp:.2f}_n_{num_iter_bfgs_ref}_nr_{num_rings}_tof_{tof}_cf_{contam_fraction}_s_{seed}_ph_{phantom_type}.npy"
 )
 
@@ -591,14 +587,7 @@ res_dict["nrmse_osem"] = nrmse_osem
 res_dict["nrmse_init"] = nrmse_init
 
 recon_path = Path("sim_results_ablation")
-# recon_path = Path("sim_resampling_results_54")
-
-if not recon_path.exists():
-    # Create the directory if it does not exist
-    recon_path.mkdir()
-else:
-    print("Directory already exists.")
-
+recon_path.mkdir(exist_ok=True)
 
 print(f"ssl{step_size_rule}, eta{eta:.2E}, s0{init_step_size:.2E}")
 res_file = (
