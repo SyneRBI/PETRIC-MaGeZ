@@ -98,7 +98,6 @@ data_sets = sorted([x.stem for x in list(Path("../output_grad").glob("*"))])
 
 for i_d, data_set in enumerate(data_sets):
     header_file = Path("../data") / LNAME[data_set] / "PETRIC" / "reference_image.hv"
-    print(f"Loading {header_file}")
     img, hdr, voxsize = load_interfile_image(header_file)
 
     img_sm = gaussian_filter(img, 3)
@@ -136,7 +135,10 @@ for i_d, data_set in enumerate(data_sets):
     mask = binary_erosion(img > 0.05 * vmax, iterations=3)
 
     print(data_set)
-    print(np.linalg.norm(df_grad_osem * mask) / np.linalg.norm(prior_grad_osem * mask))
+    print(
+        "||df_grad(mask*osem)|| / ||prior_grad(mask*osem)||",
+        np.linalg.norm(df_grad_osem * mask) / np.linalg.norm(prior_grad_osem * mask),
+    )
 
     kws = dict(vmin=0, vmax=vmax, cmap="Greys")
 
@@ -210,5 +212,5 @@ for i_d, data_set in enumerate(data_sets):
     ax[0, -2].set_axis_off()
     ax[0, -1].set_axis_off()
 
-    fig.savefig(Path("../output_grad") / data_set / f"gradients.png", dpi=300)
+    fig.savefig(f"gradients_{data_set}.png", dpi=300)
     fig.show()
