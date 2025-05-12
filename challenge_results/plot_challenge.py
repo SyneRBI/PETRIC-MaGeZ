@@ -125,8 +125,12 @@ for i_d, data_set in enumerate(data_sets):
         sl0 = np.argmax(img_sm.sum(axis=(1, 2)))
         sl1 = np.argmax(img_sm.sum(axis=(0, 2)))
         sl2 = np.argmax(img_sm.sum(axis=(0, 1)))
-
         vmax = 1.5 * img_sm.max()
+
+    osem_header_file = Path("../data") / LNAME[data_set] / "OSEM_image.hv"
+    if osem_header_file.exists():
+        print(f"Loading {osem_header_file}")
+        osem_img, _, _ = load_interfile_image(osem_header_file)
 
     for i_alg, alg in enumerate(["ALG1", "ALG2", "ALG3"]):
 
@@ -255,33 +259,45 @@ for i_d, data_set in enumerate(data_sets):
 
             # find the index in the left most axis where all values are True
 
-        if header_file.exists():
-            kws = dict(cmap="Greys", vmin=0, vmax=vmax)
-            im0 = ax[0, 2].imshow(img[sl0, :, :], **kws)
-            im1 = ax[0, 3].imshow(img[:, sl1, :], aspect=voxsize[0] / voxsize[2], **kws)
+    if header_file.exists():
+        kws = dict(cmap="Greys", vmin=0, vmax=vmax)
+        im0 = ax[0, 2].imshow(img[:, sl1, :], aspect=voxsize[0] / voxsize[2], **kws)
+        im1 = ax[0, 3].imshow(img[sl0, :, :], **kws)
+
+    if osem_header_file.exists():
+        kws = dict(cmap="Greys", vmin=0, vmax=vmax)
+        im2 = ax[1, 3].imshow(osem_img[sl0, :, :], **kws)
 
     ax[0, 0].legend(loc="upper right", fontsize="x-small", ncol=3)
 
-    for axx in ax[0, :2]:
-        axx.grid(ls=":", which="both")  # Show grid for both major and minor ticks
-        axx.set_ylim(5e-4, 1)
-        axx.set_xlabel("wall time [s]")
+    if header_file.exists():
+        for axx in ax[0, :col0]:
+            axx.grid(ls=":", which="both")  # Show grid for both major and minor ticks
+            axx.set_ylim(5e-4, 1)
+            axx.set_xlabel("wall time [s]")
 
-    for axx in ax[1, :]:
-        axx.grid(ls=":", which="both")  # Show grid for both major and minor ticks
-        axx.set_ylim(5e-4, 1)
-        axx.set_xlabel("wall time [s]")
+        ax[0, col0 + 0].set_xticks([])
+        ax[0, col0 + 0].set_yticks([])
+        ax[0, col0 + 0].set_title("RDP ref. recon. coronal", fontsize="medium")
+        ax[0, col0 + 1].set_xticks([])
+        ax[0, col0 + 1].set_yticks([])
+        ax[0, col0 + 1].set_title("RDP ref. recon. transaxial", fontsize="medium")
 
-    for i in range(4, num_cols):
-        ax[0, i].set_axis_off()
-    for i in range(col1, num_cols):
-        ax[1, i].set_axis_off()
+    if osem_header_file.exists():
+        for i in range(col0 + 2, num_cols):
+            ax[0, i].set_axis_off()
 
-    for i in [2, 3]:
-        ax[0, i].set_xticks([])
-        ax[0, i].set_yticks([])
+        for axx in ax[1, :col1]:
+            axx.grid(ls=":", which="both")  # Show grid for both major and minor ticks
+            axx.set_ylim(5e-4, 1)
+            axx.set_xlabel("wall time [s]")
 
-    fig.suptitle(f"{data_set}", fontsize="large")
+        for i in range(col1 + 1, num_cols):
+            ax[1, i].set_axis_off()
+
+        ax[1, col1 + 0].set_xticks([])
+        ax[1, col1 + 0].set_yticks([])
+        ax[1, col1 + 0].set_title("init. OSEM transaxial", fontsize="medium")
 
     if data_set in TNAME.keys():
         prefix = "test"
