@@ -18,7 +18,7 @@ __pycache__/
 # Tensorboard files
 events.*
 # user defined ignores
-output_magez*/
+output_*/
 simulation_src/sim_results/
 simulation_src/sim_results*/*
 simulation_src/run*.ps1
