@@ -255,9 +255,11 @@ for i_d, data_set in enumerate(data_sets):
             i_th = np.where(reached_threshold)[0][0]
             t_th = float(time[i_th])
             print(f"Threshold reached at {t_th:.2f} s, {i_th+1} iterations")
-            ax[0, 1].axvline(t_th, color=color, ls="-", alpha=0.5, linewidth=0.75)
 
-            # find the index in the left most axis where all values are True
+            for cc in range(col0):
+                ax[0, cc].axvline(t_th, color=color, ls="-", alpha=0.5, linewidth=0.75)
+            for cc in range(col1):
+                ax[1, cc].axvline(t_th, color=color, ls="-", alpha=0.5, linewidth=0.75)
 
     if header_file.exists():
         kws = dict(cmap="Greys", vmin=0, vmax=vmax)
@@ -274,7 +276,7 @@ for i_d, data_set in enumerate(data_sets):
         for axx in ax[0, :col0]:
             axx.grid(ls=":", which="both")  # Show grid for both major and minor ticks
             axx.set_ylim(5e-4, 1)
-            axx.set_xlabel("wall time [s]")
+            axx.set_xlabel("walltime [s]")
 
         ax[0, col0 + 0].set_xticks([])
         ax[0, col0 + 0].set_yticks([])
@@ -290,7 +292,7 @@ for i_d, data_set in enumerate(data_sets):
         for axx in ax[1, :col1]:
             axx.grid(ls=":", which="both")  # Show grid for both major and minor ticks
             axx.set_ylim(5e-4, 1)
-            axx.set_xlabel("wall time [s]")
+            axx.set_xlabel("walltime [s]")
 
         for i in range(col1 + 1, num_cols):
             ax[1, i].set_axis_off()
