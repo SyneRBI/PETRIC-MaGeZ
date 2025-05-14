@@ -9,6 +9,7 @@ from tensorboard.backend.event_processing.event_accumulator import (
 )
 
 from scipy.ndimage import gaussian_filter
+from skimage import measure
 
 
 def parse_interfile_header(header_path):
@@ -131,6 +132,17 @@ for i_d, data_set in enumerate(data_sets):
     if osem_header_file.exists():
         print(f"Loading {osem_header_file}")
         osem_img, _, _ = load_interfile_image(osem_header_file)
+
+    contour_header_files = sorted(
+        list((Path("../data") / LNAME[data_set] / "PETRIC").glob("VOI_*.hv"))
+    )
+
+    contour_imgs = {}
+
+    for contour_header_file in contour_header_files:
+        contour_imgs[contour_header_file.stem] = load_interfile_image(
+            contour_header_file
+        )[0]
 
     for i_alg, alg in enumerate(["ALG1", "ALG2", "ALG3"]):
 
@@ -281,9 +293,62 @@ for i_d, data_set in enumerate(data_sets):
         ax[0, col0 + 0].set_xticks([])
         ax[0, col0 + 0].set_yticks([])
         ax[0, col0 + 0].set_title("RDP ref. recon. coronal", fontsize="medium")
+        # Plot the reference transaxial image
         ax[0, col0 + 1].set_xticks([])
         ax[0, col0 + 1].set_yticks([])
         ax[0, col0 + 1].set_title("RDP ref. recon. transaxial", fontsize="medium")
+
+        # overlay contours on the transaxial image
+        for i, (key, contour_img) in enumerate(contour_imgs.items()):
+            # Find contours at the 0.5 level
+            for ic, contour in enumerate(
+                measure.find_contours(contour_img[sl0, :, :], 0.5)
+            ):
+                if ic == 0:
+                    lab = key[4:]
+                else:
+                    lab = None
+
+                ax[0, 3].plot(
+                    contour[:, 1],
+                    contour[:, 0],
+                    color=plt.cm.tab10(i),
+                    linewidth=0.75,
+                    alpha=0.75,
+                    label=lab,
+                )
+
+            for ic, contour in enumerate(
+                measure.find_contours(contour_img[:, sl1, :], 0.5)
+            ):
+                if ic == 0:
+                    lab = key[4:]
+                else:
+                    lab = None
+
+                ax[0, 2].plot(
+                    contour[:, 1],
+                    contour[:, 0],
+                    color=plt.cm.tab10(i),
+                    linewidth=0.75,
+                    alpha=0.75,
+                    label=lab,
+                )
+
+        ax[0, 2].legend(
+            loc="upper center",
+            fontsize="small",
+            ncol=3,
+            numpoints=2,
+            bbox_to_anchor=(0.5, -0.05),
+        )
+        ax[0, 3].legend(
+            loc="upper center",
+            fontsize="small",
+            ncol=2,
+            numpoints=3,
+            bbox_to_anchor=(0.5, -0.05),
+        )
 
     if osem_header_file.exists():
         for i in range(col0 + 2, num_cols):
