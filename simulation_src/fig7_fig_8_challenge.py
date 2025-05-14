@@ -1,3 +1,11 @@
+# the performance data of the 3 algorithms can be downloaded here
+# https://doi.org/10.5281/zenodo.15411476
+# and should be put into the "../challenge_results" folder
+
+# the petric data sets (incl the reference images) can be downloaded here
+# https://petric.tomography.stfc.ac.uk/data
+# and should be put into the "../data" folder
+
 import logging
 from pathlib import Path
 
@@ -112,7 +120,9 @@ def scalars(ea: EventAccumulator, tag: str) -> list[tuple[float, float]]:
 
 # ------------------------------------------------------------------------------
 
-data_sets = sorted([x.stem for x in list(Path("ALG1/output_1").glob("*"))])
+data_sets = sorted(
+    [x.stem for x in list(Path("../challenge_results/ALG1/output_1").glob("*"))]
+)
 
 for i_d, data_set in enumerate(data_sets):
     print(data_set)
@@ -147,7 +157,11 @@ for i_d, data_set in enumerate(data_sets):
     for i_alg, alg in enumerate(["ALG1", "ALG2", "ALG3"]):
 
         tensorboard_logfiles = sorted(
-            list(Path(f"{alg}").glob(f"output_[0-9]/{data_set}/events*"))
+            list(
+                Path(f"../challenge_results/{alg}").glob(
+                    f"output_[0-9]/{data_set}/events*"
+                )
+            )
         )
 
         for i_f, tensorboard_logfile in enumerate(tensorboard_logfiles):
