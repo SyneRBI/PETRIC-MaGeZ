@@ -119,6 +119,10 @@ for fig_num in fig_nums:
 
                             if i_ss == 0:
                                 lines.append(line)
+                                # add horizontal line for the initial NRMSE
+                                ax[i, j].axhline(
+                                    content["nrmse_init"], color="k", ls="-.", lw=0.7
+                                )
 
         for axx in ax.ravel():
             axx.grid(True, which="both", ls="-", lw=0.1)

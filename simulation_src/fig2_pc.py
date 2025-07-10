@@ -103,6 +103,9 @@ for method in methods:
                         label=label,
                     )
 
+                    # add horizontal line for the initial NRMSE
+                    ax[i, j].axhline(content["nrmse_init"], color="k", ls="-.", lw=0.7)
+
                     if i == 0 and j == 0:
                         handles.append(line)
 
