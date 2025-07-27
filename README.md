@@ -1,7 +1,8 @@
 # MaGeZ contribution to the PETRIC reconstruction challenge
 
 This repository contains algorithms developed by the MaGeZ team submitted to
-the [2024 PETRIC reconstruction challenge](https://github.com/SyneRBI/PETRIC).
+the [2024 PETRIC reconstruction challenge](https://github.com/SyneRBI/PETRIC) and
+published in the preprint [Fast PET Reconstruction with Variance Reduction and Prior-Aware Preconditioning](https://arxiv.org/abs/2506.04976).
 
 ## Authors
 
@@ -9,7 +10,15 @@ the [2024 PETRIC reconstruction challenge](https://github.com/SyneRBI/PETRIC).
 - Georg Schramm, KU Leuven, Belgium
 - Zeljko Kereta, Univeristy College London, United Kingdom
 
-## Algorithms
+## Simulation results related to 2024 PETRIC and our paper
+
+To reproduce all simulation results checkout the tag `2024_paper_simulation_results`
+and have a look at the [Readme.md in the simulation_src folder](https://github.com/SyneRBI/PETRIC-MaGeZ/blob/main/simulation_src/README.md).
+
+## Algorithms sumbitted to the 2024 PETRIC challenge
+
+**To reproduce the PETRIC results of our three submitted algorithms
+(ALG1, ALG2, ALG3), please checkout the respective tag.**
 
 ### ALG1 (main branch, ALG1 tag)
 
