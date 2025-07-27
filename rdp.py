@@ -1,17 +1,18 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Union
+from types import ModuleType
+
 import abc
 import array_api_compat.numpy as np
 from array_api_compat import device
 
-from types import ModuleType
-from typing import TypeAlias
+if TYPE_CHECKING:
+    import cupy as cp
 
-Array: TypeAlias = np.ndarray
-try:
-    import array_api_compat.cupy as cp
-
-    Array: TypeAlias = Array | cp.ndarray
-except:
-    pass
+    Array = Union[np.ndarray, cp.ndarray]  # Used for type checking
+else:
+    Array = np.ndarray  # Default at runtime
 
 
 def neighbor_difference_and_sum(
@@ -274,7 +275,7 @@ class RDP(SmoothFunctionWithDiagonalHessian):
         if self._weights is not None:
             tmp *= self._weights
 
-        return 0.5 * float(self.xp.sum(tmp))
+        return 0.5 * float(self.xp.sum(tmp, dtype=self.xp.float64))
 
     def _gradient(self, x: Array) -> Array:
         d, s = neighbor_difference_and_sum(x, self.xp, padding=self._padding)

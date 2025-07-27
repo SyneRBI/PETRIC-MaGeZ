@@ -13,7 +13,6 @@ Usage:
 
 Options:
     --log LEVEL  : Set logging level (DEBUG, [default: INFO], WARNING, ERROR, CRITICAL)
-    --outdir DIR : Specify the output directory [default: ./output]
 """
 import csv
 import logging
@@ -40,9 +39,8 @@ from img_quality_cil_stir import ImageQualityCallback
 log = logging.getLogger("petric")
 TEAM = os.getenv("GITHUB_REPOSITORY", "SyneRBI/PETRIC-").split("/PETRIC-", 1)[-1]
 VERSION = os.getenv("GITHUB_REF_NAME", "")
-# OUTDIR = Path(f"/o/logs/{TEAM}/{VERSION}" if TEAM and VERSION else "./output")
 args = docopt(__doc__)
-OUTDIR = Path(args["--outdir"])
+OUTDIR = Path("./output_grad")
 if not (SRCDIR := Path("/mnt/share/petric")).is_dir():
     SRCDIR = Path("./data")
 
@@ -597,14 +595,14 @@ if __name__ != "__main__":
 else:
     from traceback import print_exc
     from tqdm.contrib.logging import logging_redirect_tqdm
+    from sirf.contrib.partitioner import partitioner
 
     args = docopt(__doc__)
     logging.basicConfig(level=getattr(logging, args["--log"].upper()))
     redir = logging_redirect_tqdm()
     redir.__enter__()
-    from main import Submission, submission_callbacks
-
-    assert issubclass(Submission, Algorithm)
+    # from main import Submission, submission_callbacks
+    # assert issubclass(Submission, Algorithm)
     for srcdir, outdir, metrics in data_dirs_metrics:
         data = get_data(srcdir=srcdir, outdir=outdir)
         metrics_with_timeout = metrics[0]
@@ -618,16 +616,29 @@ else:
                     voi_mask_dict=data.voi_masks,
                 )
             )
-        metrics_with_timeout.reset()  # timeout from now
-        print(f"Running {srcdir}")
-        algo = Submission(data)
-        try:
-            algo.run(
-                np.inf,
-                callbacks=metrics + submission_callbacks,
-                update_objective_interval=np.inf,
-            )
-        except Exception:
-            print_exc(limit=2)
-        finally:
-            del algo
+
+        _, _, subset_likelihood_funcs = partitioner.data_partition(
+            data.acquired_data,
+            data.additive_term,
+            data.mult_factors,
+            1,
+            initial_image=data.OSEM_image,
+            mode="staggered",
+        )
+
+        data.prior.set_penalisation_factor(data.prior.get_penalisation_factor())
+        data.prior.set_up(data.OSEM_image)
+
+        print(outdir)
+        # calculate the the data fidelity gradients for OSEM and reference image
+        df_grad_osem = -subset_likelihood_funcs[0].gradient(data.OSEM_image)
+        df_grad_osem.write(str(outdir / "df_grad_osem.hv"))
+
+        df_grad_ref = -subset_likelihood_funcs[0].gradient(data.reference_image)
+        df_grad_ref.write(str(outdir / "df_grad_ref.hv"))
+
+        prior_grad_osem = data.prior.gradient(data.OSEM_image)
+        prior_grad_osem.write(str(outdir / "prior_grad_osem.hv"))
+
+        prior_grad_ref = data.prior.gradient(data.reference_image)
+        prior_grad_ref.write(str(outdir / "prior_grad_ref.hv"))
