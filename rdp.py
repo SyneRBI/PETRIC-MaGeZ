@@ -5,7 +5,7 @@ from types import ModuleType
 
 import abc
 import array_api_compat.numpy as np
-from array_api_compat import device
+from array_api_compat import device, to_device
 
 if TYPE_CHECKING:
     import cupy as cp
@@ -149,7 +149,7 @@ class SmoothFunction(abc.ABC):
         if flat_input:
             res = self._xp.reshape(res, (res.size,))
 
-        res = self.xp.to_device(res, dev_input)
+        res = to_device(res, dev_input)
 
         return res
 
@@ -187,7 +187,7 @@ class SmoothFunctionWithDiagonalHessian(SmoothFunction):
         if flat_input:
             res = self._xp.reshape(res, (res.size,))
 
-        res = self.xp.to_device(res, dev_input)
+        res = to_device(res, dev_input)
 
         return res
 
