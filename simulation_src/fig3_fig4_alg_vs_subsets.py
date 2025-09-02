@@ -104,7 +104,7 @@ for fig_num in fig_nums:
                                 x = walltime[(num_subsets - 1) :: num_subsets]
 
                             if i_ss == 0:
-                                label = f"$n_s$={num_subsets} $\\tau_0$={init_step_size:.1f}"
+                                label = f"$n$={num_subsets} $\\tau_0$={init_step_size:.1f}"
                             else:
                                 label = None
 
