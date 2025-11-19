@@ -341,14 +341,13 @@ class Submission(Algorithm):
             # remember that the objective has to be maximized
             # posterior = log likelihood - log prior ("minus" instead of "plus"!)
             approximated_gradient = (
-                self._num_subsets
-                * (
+                (
                     (
                         self._subset_likelihood_funcs[self.subset].gradient(self.x)
                         - subset_prior_gradient
                     )
                     - self._subset_gradients[self.subset]
-                )
+                ) * self._num_subsets
                 + self._summed_subset_gradients
             )
 
