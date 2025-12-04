@@ -14,69 +14,109 @@ if TYPE_CHECKING:
 else:
     Array = np.ndarray  # Default at runtime
 
+def neighbor_offsets(ndim, xp):
+    # all offsets in {-1,0,1}^ndim except 0
+    grid = xp.stack(xp.meshgrid(*([xp.arange(-1, 2)] * ndim), indexing="ij"), axis=-1)
+    offsets = grid.reshape(-1, ndim)
+    # remove zero offset
+    mask = xp.any(offsets != 0, axis=1)
+    return offsets[mask]  # shape: (num_neigh, ndim)
 
-def neighbor_difference_and_sum(
-    x: Array, xp: ModuleType, padding: str = "edge"
-) -> tuple[Array, Array]:
-    """get differences and sums with nearest neighbors for an n-dimensional array x
-    using padding (by default in edge mode)
-    a x.ndim*(3,) neighborhood around each element is used
+
+def neighbor_difference_and_sum(x, xp):
     """
-    x_padded = xp.pad(x, 1, mode=padding)
+    x: array_api-compatible array, shape (n1, n2, ..., nD)
+    returns:
+        d, s: shape (num_neigh, n1, n2, ..., nD)
+              differences and sums with all nearest neighbors.
+              If a neighbor is outside the image, the corresponding
+              entry is 0 by definition.
+    """
+    ndim = x.ndim
+    shape = x.shape
+    offsets = neighbor_offsets(ndim, xp)          # (num_neigh, ndim)
+    num_neigh = offsets.shape[0]
 
-    # number of nearest neighbors
-    num_neigh = 3**x.ndim - 1
+    d = xp.zeros((num_neigh,) + shape, dtype=x.dtype)
+    s = xp.zeros((num_neigh,) + shape, dtype=x.dtype)
 
-    # array for differences and sums with nearest neighbors
-    d = xp.zeros((num_neigh,) + x.shape, dtype=x.dtype)
-    s = xp.zeros((num_neigh,) + x.shape, dtype=x.dtype)
+    for k in range(num_neigh):
+        off = offsets[k]  # e.g. [-1, 0, 1, ...], shape (ndim,)
 
-    for i, ind in enumerate(xp.ndindex(x.ndim * (3,))):
-        if i != (num_neigh // 2):
-            sl = []
-            for j in ind:
-                if j - 2 < 0:
-                    sl.append(slice(j, j - 2))
-                else:
-                    sl.append(slice(j, None))
-            sl = tuple(sl)
+        # build slices for "center" and "neighbor" so that
+        # center[...] and neighbor[...] have exactly the same shape
+        center_sl = []
+        neigh_sl = []
+        for ax, (n, o) in enumerate(zip(shape, off)):
+            if o == 0:
+                # full axis in both
+                center_sl.append(slice(0, n))
+                neigh_sl.append(slice(0, n))
+            elif o > 0:
+                # neighbor is shifted +o → valid center is [0 : n-o]
+                center_sl.append(slice(0, n - o))
+                neigh_sl.append(slice(o, n))
+            else:  # o < 0
+                # neighbor is shifted -|o| → valid center is [|o| : n]
+                o_abs = -o
+                center_sl.append(slice(o_abs, n))
+                neigh_sl.append(slice(0, n - o_abs))
 
-            if i < num_neigh // 2:
-                d[i, ...] = x - x_padded[sl]
-                s[i, ...] = x + x_padded[sl]
-            else:
-                d[i - 1, ...] = x - x_padded[sl]
-                s[i - 1, ...] = x + x_padded[sl]
+        center_sl = tuple(center_sl)
+        neigh_sl = tuple(neigh_sl)
+
+        # view with aligned shapes
+        xc = x[center_sl]
+        xn = x[neigh_sl]
+
+        # place results into the corresponding region of d[k], s[k]
+        # outside that region, d and s remain zero
+        d_view = d[(k,) + center_sl]
+        s_view = s[(k,) + center_sl]
+
+        d_view[...] = xc - xn
+        s_view[...] = xc + xn
 
     return d, s
 
 
-def neighbor_product(x: Array, xp: ModuleType, padding: str = "edge") -> Array:
-    """get backward and forward neighbor products for each dimension of an array x
-    using padding (by default in edge mode)
+def neighbor_product(x, xp):
     """
-    x_padded = xp.pad(x, 1, mode=padding)
+    Same neighbor definition as neighbor_difference_and_sum, but returns
+    products x * neighbor. Products with neighbors outside the image are 0.
+    """
+    ndim = x.ndim
+    shape = x.shape
+    offsets = neighbor_offsets(ndim, xp)
+    num_neigh = offsets.shape[0]
 
-    # number of nearest neighbors
-    num_neigh = 3**x.ndim - 1
+    p = xp.zeros((num_neigh,) + shape, dtype=x.dtype)
 
-    # array for differences and sums with nearest neighbors
-    p = xp.zeros((num_neigh,) + x.shape, dtype=x.dtype)
+    for k in range(num_neigh):
+        off = offsets[k]
 
-    for i, ind in enumerate(xp.ndindex(x.ndim * (3,))):
-        if i != (num_neigh // 2):
-            sl = []
-            for j in ind:
-                if j - 2 < 0:
-                    sl.append(slice(j, j - 2))
-                else:
-                    sl.append(slice(j, None))
-            sl = tuple(sl)
+        center_sl = []
+        neigh_sl = []
+        for ax, (n, o) in enumerate(zip(shape, off)):
+            if o == 0:
+                center_sl.append(slice(0, n))
+                neigh_sl.append(slice(0, n))
+            elif o > 0:
+                center_sl.append(slice(0, n - o))
+                neigh_sl.append(slice(o, n))
+            else:  # o < 0
+                o_abs = -o
+                center_sl.append(slice(o_abs, n))
+                neigh_sl.append(slice(0, n - o_abs))
 
-            if i < num_neigh // 2:
-                p[i, ...] = x * x_padded[sl]
-            else:
-                p[i - 1, ...] = x * x_padded[sl]
+        center_sl = tuple(center_sl)
+        neigh_sl = tuple(neigh_sl)
+
+        xc = x[center_sl]
+        xn = x[neigh_sl]
+
+        p_view = p[(k,) + center_sl]
+        p_view[...] = xc * xn
 
     return p
 
@@ -201,7 +241,6 @@ class RDP(SmoothFunctionWithDiagonalHessian):
         voxel_size: Array,
         eps: float | None = None,
         gamma: float = 2.0,
-        padding: str = "edge",
     ) -> None:
         self._gamma = gamma
 
@@ -210,7 +249,6 @@ class RDP(SmoothFunctionWithDiagonalHessian):
         else:
             self._eps = eps
 
-        self._padding = padding
         self._ndim = len(in_shape)
 
         super().__init__(in_shape=in_shape, xp=xp, dev=dev)
@@ -267,7 +305,7 @@ class RDP(SmoothFunctionWithDiagonalHessian):
         if float(self.xp.min(x)) < 0:
             return self.xp.inf
 
-        d, s = neighbor_difference_and_sum(x, self.xp, padding=self._padding)
+        d, s = neighbor_difference_and_sum(x, self.xp)
         phi = s + self.gamma * self.xp.abs(d) + self.eps
 
         tmp = (d**2) / phi
@@ -278,7 +316,7 @@ class RDP(SmoothFunctionWithDiagonalHessian):
         return 0.5 * float(self.xp.sum(tmp, dtype=self.xp.float64))
 
     def _gradient(self, x: Array) -> Array:
-        d, s = neighbor_difference_and_sum(x, self.xp, padding=self._padding)
+        d, s = neighbor_difference_and_sum(x, self.xp)
         phi = s + self.gamma * self.xp.abs(d) + self.eps
 
         tmp = d * (2 * phi - (d + self.gamma * self.xp.abs(d))) / (phi**2)
@@ -289,7 +327,7 @@ class RDP(SmoothFunctionWithDiagonalHessian):
         return tmp.sum(axis=0)
 
     def _diag_hessian(self, x: Array) -> Array:
-        d, s = neighbor_difference_and_sum(x, self.xp, padding=self._padding)
+        d, s = neighbor_difference_and_sum(x, self.xp)
         phi = s + self.gamma * self.xp.abs(d) + self.eps
 
         tmp = ((s - d + self.eps) ** 2) / (phi**3)
